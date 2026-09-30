@@ -312,7 +312,9 @@ class TopUpTest(RecurringCase):
 
 class GapTest(RecurringCase):
     def gaps(self, r):
-        return {k: min((b - a).days for a, b in zip(v, v[1:])) for k, v in self.dates(r).items() if len(v) > 1}
+        # Distinct days: a same-day, same-amount duplicate (batch entry, FR-H3) is not a gap.
+        days = {k: sorted(set(v)) for k, v in self.dates(r).items()}
+        return {k: min((b - a).days for a, b in zip(v, v[1:])) for k, v in days.items() if len(v) > 1}
 
     def test_per_archetype_minimum_gaps_hold(self):  # T21, FR-E5
         def busy(files):

@@ -141,7 +141,11 @@ class DeterminismTest(unittest.TestCase):
         self.assertEqual(grown.code, 0, grown.stderr)
         new_texts = {"Taxi fare to color grading session", "Taxi fare"}
         kept = [r for r in grown.rows if r["item/service"] not in new_texts]
-        self.assertEqual(kept, base.rows)
+        # Same rows. Entry order interleaves storylines, and the one row entered late when a
+        # file would otherwise be perfectly date-sorted (FR-H4) depends on every row, so
+        # the comparison ignores order.
+        key = lambda r: tuple(r.values())
+        self.assertEqual(sorted(kept, key=key), sorted(base.rows, key=key))
         self.assertGreater(len(grown.rows), len(base.rows))
 
     def test_generate_runs_offline_without_api_key_or_ledgers(self):  # T6
@@ -369,16 +373,17 @@ class OutputFormatTest(unittest.TestCase):
 
     def test_rows_use_rate_card_prices_allowed_quantities_one_per_item_per_day(self):
         index = text_to_item(self.files)
-        seen = set()
+        seen = {}
         for row in self.result.rows:
             item = index[row["item/service"]]
             card = self.files["rate_cards"][item]
             centavos = int(Decimal(row["unit_price"]) * 100)
             self.assertIn(centavos, [p["unit_price"] for p in card["points"]])
             self.assertIn(int(row["qty"]), [q["qty"] for q in card["quantities"] if q["weight"] > 0])
+            # A same-day, same-amount duplicate (batch entry, FR-H3) is the only second row allowed.
             key = (item, row["date_of_transaction"])
-            self.assertNotIn(key, seen, "at most one row per item per day")
-            seen.add(key)
+            amount = (row["qty"], row["unit_price"])
+            self.assertEqual(seen.setdefault(key, amount), amount, "at most one row per item per day")
         self.assertEqual(len({index[r["item/service"]] for r in self.result.rows}), len(self.files["catalog"]["items"]))
 
     def test_run_json_documents_the_run(self):

@@ -20,6 +20,10 @@ Bundle files (all JSON, top level of the bundle folder):
                    "calendar": {...} (day shape, see txns.engine.calendar)}
 - holidays.json   Philippine holiday calendar for the bundle's years (txns.holidays)
 - reference.json  ledger statistics (filled by later tickets)
+- vocabulary.json optional: batch-logged date-tail formats (`txns.bundle.vocabulary`)
+
+Catalog `pack_pcs` (stock items): pieces per pack, for derived per-unit rows
+(`txns.bundle.packs`).
 
 Any other *.json file is loaded into `Bundle.data[<stem>]` untouched, so a new
 file can be added to the bundle without changing this loader. To add a field
@@ -54,6 +58,10 @@ PRICE_CLASSES = ("subscription", "retail", "big_ticket")
 # Minimum days between an item's rows when neither the item's params nor
 # rules.json `archetypes.<name>.min_gap_days` set one (FR-E5); other archetypes 1.
 DEFAULT_MIN_GAP_DAYS = {"fixed_day_subscription": 25, "periodic_top_up": 7}
+# Rows of one item on one day when neither the item's params nor rules.json
+# `archetypes.<name>.max_per_day` set one (FR-E5: only party-day and
+# batch-logged items may exceed one, capped by count); other archetypes 1.
+DEFAULT_MAX_PER_DAY = {"batch_logged": 8}
 
 
 @dataclass(frozen=True)
@@ -194,11 +202,13 @@ class Bundle:
     def gap_rules(self, item: Item) -> tuple[int, int]:
         """(max rows per day, minimum gap in days) for an item (FR-E5).
 
-        Per-item `params` override the archetype's rules; defaults 1 row a day
-        and `DEFAULT_MIN_GAP_DAYS` (subscription 25, top-up 7, others 1).
+        Per-item `params` override the archetype's rules; defaults
+        `DEFAULT_MAX_PER_DAY` (batch-logged 8, others 1 row a day) and
+        `DEFAULT_MIN_GAP_DAYS` (subscription 25, top-up 7, others 1).
         """
         rules = self.archetype_rules(item.archetype)
-        max_per_day = item.params.get("max_per_day", rules.get("max_per_day", 1))
+        default_max = DEFAULT_MAX_PER_DAY.get(item.archetype, 1)
+        max_per_day = item.params.get("max_per_day", rules.get("max_per_day", default_max))
         default_gap = DEFAULT_MIN_GAP_DAYS.get(item.archetype, 1)
         min_gap = item.params.get("min_gap_days", rules.get("min_gap_days", default_gap))
         return int(max_per_day), int(min_gap)
@@ -226,7 +236,7 @@ def read_json_files(folder: Path) -> dict[str, Any]:
 
 def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) -> Bundle:
     """Structural checks that `generate` relies on; failures exit 4."""
-    from txns.bundle import prices  # rate-card rules; imports this module
+    from txns.bundle import packs, prices, vocabulary  # item rules; prices imports this module
 
     storylines = data["storylines"]
     if not isinstance(storylines, dict) or not storylines:
@@ -252,6 +262,7 @@ def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) ->
         if not isinstance(card, dict):
             raise _bad(f"{where}: no rate card")
         rate_card = prices.parse_card(where, entry, card)
+        packs.check_entry(where, entry, goods=rate_card.goods, decimal=rate_card.decimal)
         variants = text.get(item_id)
         if not isinstance(variants, dict):
             raise _bad(f"{where}: no text variants")
@@ -283,6 +294,7 @@ def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) ->
             goods=rate_card.goods,
             steps=rate_card.steps,
         )
+    vocabulary.check(data.get("vocabulary"))
     try:
         calendar = holidays.parse(data["holidays"])
     except holidays.CalendarInvalid as exc:

@@ -7,7 +7,7 @@ can reach about ₱200k, so targets here stay in that range.
 
 import statistics
 import unittest
-from collections import Counter
+from collections import Counter, defaultdict
 from decimal import Decimal
 
 from tests.helpers import Workspace, add_item, load_fixture_files
@@ -71,7 +71,7 @@ class CalibrationCase(unittest.TestCase):
 
     def assert_no_plug_rows(self, r):  # T14
         """Every row is qty x a rate-card price, qty from the allowed set, gap rules kept."""
-        per_item_day = Counter()
+        per_item_day = defaultdict(set)
         for row in r.rows:
             item_id = self.index[row["item/service"]]
             card = self.files["rate_cards"][item_id]
@@ -80,8 +80,9 @@ class CalibrationCase(unittest.TestCase):
             self.assertIn(Decimal(row["qty"]), allowed, row)
             if self.files["catalog"]["items"][item_id]["class"] != "big_ticket":
                 self.assertNotEqual(amount(row) % 100_000, 0, f"round-thousand plug row {row}")
-            per_item_day[(item_id, row["date_of_transaction"])] += 1
-        self.assertEqual(max(per_item_day.values()), 1, "at most one row per item per day")
+            # A same-day, same-amount duplicate group (batch entry, FR-H3) counts once.
+            per_item_day[(item_id, row["date_of_transaction"])] |= {amount(row)}
+        self.assertEqual(max(map(len, per_item_day.values())), 1, "at most one row per item per day")
         hard = {c["name"]: c["status"] for c in r.run_json["scorecard"]["checks"] if c["hard"]}
         self.assertEqual(set(hard.values()), {"pass"}, hard)
 

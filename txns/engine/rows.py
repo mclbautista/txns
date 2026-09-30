@@ -20,6 +20,7 @@ class Occurrence:
     storyline: str
     date: date
     tags: tuple[str, ...] = ()  # e.g. ("deposit",), ("batch",); free-form per archetype
+    original_date: date | None = None  # batch-logged: the day it happened; `date` is the batch day
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class Row:
     storyline: str | None = None
     price_point: int | None = None  # index into the item's rate-card points
     tags: tuple[str, ...] = field(default=())
+    original_date: date | None = None  # batch-logged rows: the day it happened (date tails, FR-H3)
 
     @property
     def amount(self) -> int | Decimal:
