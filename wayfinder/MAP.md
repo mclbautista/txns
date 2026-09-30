@@ -33,6 +33,7 @@ A **design spec** (architecture + data model + decisions) for a one-command, see
 | 06 | Patternless vs realistic | closed |
 | 07 | Correction feedback loop | closed |
 | 08 | Config and CLI shape | closed |
+| 09 | Implementation stack and LLM | closed |
 
 ## Decisions so far
 
@@ -80,10 +81,11 @@ A **design spec** (architecture + data model + decisions) for a one-command, see
 
 - **Ticket 08 (done, Cyril 2026-09-30):** prototype at `prototypes/08-config-cli/`. Commands `author`, `approve` (kept, used after hand-editing a bundle) and `generate`; one TOML config; distinct exit codes 0-6 accepted; no corrections input (ticket 07).
 
+- **Ticket 09 (done, Cyril 2026-09-30, ADR 0007):** Python 3.12+ with own PRNG and integer centavos; `txns` console script. `author` calls OpenRouter with one pinned Sonnet-class model, no fallbacks; only aggregates and scrubbed names (brand allowlist, fabricated replacements) leave the machine. Automatic promotion gate includes a smoke `generate`. Retry then exit 3 (also cost cap, default US$5), schema failure exit 4, partial drafts resume. Strict Xero-export ledger parser; `reference.json` re-derived each run and hashed into the bundle. Details in `tickets/09-implementation-stack-and-llm.md`.
+
 ## Not yet specified
 
 - Validation/realism scorecard (metrics that prove data is realistic and not just random); temporal and price models are now decided.
-- Implementation language, LLM provider/model, cost and offline behaviour.
 - Extra columns or edge cases the import pipeline needs (credits/refunds, tax, vendor, project code), if any.
 
 ## Out of scope
