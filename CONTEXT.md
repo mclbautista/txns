@@ -5,7 +5,7 @@ A spec (not yet built) for a one-command tool that generates realistic, human-lo
 ## Glossary
 
 - **Ledger**: spend-only account transactions of a Philippine post-production facility (currency PHP). Rows paying a person are excluded; sold services are not in the catalog.
-- **Output CSV**: four columns only, `date, qty, unit_price, item`. No blank item cells; rows without real item text get an invented item (never vendor-only). Sidecar `run.json` holds everything else.
+- **Output CSV**: four columns only, `date_of_transaction, qty, unit_price, item/service`. No blank item cells; rows without real item text get an invented item (never vendor-only). Sidecar `run.json` holds everything else.
 - **Bundle**: immutable, content-hashed folder `bundles/<label>-<hash>/` holding catalog, rate cards, vocabulary, archetype assignments, holiday calendar, declarative rules and `reference.json`. Starts `reviewed: false` until `approve`.
 - **`author`**: the only command that calls an LLM. Drafts catalog, item variants (including invented items for text-less rows) and vocabulary; validates in a temp folder before promoting a bundle.
 - **`generate`**: pure function of seed + bundle + config. No LLM, no network. Byte-identical per seed on the same machine. The quarterly routine is `generate` alone.
