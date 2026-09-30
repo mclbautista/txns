@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -38,18 +39,26 @@ def text_violations(text: str) -> list[str]:
     return problems
 
 
-def row_violations(row: Row) -> list[str]:
-    """Every FR-H2 problem with one row; empty when the row is writable."""
+def row_violations(row: Row, *, decimal: bool = False) -> list[str]:
+    """Every FR-H2 problem with one row; empty when the row is writable.
+
+    `decimal`: the row's item is marked decimal, so qty may be a positive Decimal.
+    """
     problems = text_violations(row.text)
-    if isinstance(row.qty, bool) or not isinstance(row.qty, int) or row.qty <= 0:
-        problems.append(f"qty must be a positive integer, got {row.qty!r}")
+    qty = row.qty
+    if isinstance(qty, Decimal) and qty.is_finite() and qty > 0:
+        if not decimal:
+            problems.append(f"qty {format_qty(qty)} is a decimal on an item not marked decimal")
+    elif isinstance(qty, bool) or not isinstance(qty, int) or qty <= 0:
+        problems.append(f"qty must be a positive {'number' if decimal else 'integer'}, got {qty!r}")
     if isinstance(row.unit_price, bool) or not isinstance(row.unit_price, int) or row.unit_price <= 0:
         problems.append(f"unit_price must be positive integer centavos, got {row.unit_price!r}")
     return problems
 
 
-def format_qty(qty: int) -> str:
-    return str(qty)
+def format_qty(qty: int | Decimal) -> str:
+    """Integers as is; decimal quantities (decimal items only) in plain notation, as the bundle wrote them."""
+    return format(qty, "f") if isinstance(qty, Decimal) else str(qty)
 
 
 def csv_bytes(rows: list[Row]) -> bytes:

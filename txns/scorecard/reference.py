@@ -17,6 +17,8 @@ Keys in use (add yours here, one line each, in alphabetical order):
     terse_share             {category: float}, share of the category's rows whose
                             item text is terse (short, unattributed, e.g. "Coffee");
                             the engine draws terse text at this rate (FR-H1)
+    whole_peso_share        float, share of rows whose unit price has no cents
+                            (`txns.money.is_whole_peso`)
 
 The functions below are the one definition of each measure: the scorecard
 applies them to generated rows and the ledger reader (ticket 12) to ledger
@@ -29,7 +31,7 @@ import math
 from collections import defaultdict
 from typing import Iterable, Mapping, Sequence
 
-from txns.money import is_round_amount
+from txns.money import is_round_amount, is_whole_peso
 
 PERCENTILES = (10, 25, 50, 75, 90)
 
@@ -51,6 +53,12 @@ def round_amount_share(amounts: Sequence) -> float | None:
     if not amounts:
         return None
     return sum(1 for a in amounts if is_round_amount(a)) / len(amounts)
+
+
+def whole_peso_share(unit_prices: Sequence) -> float | None:
+    if not unit_prices:
+        return None
+    return sum(1 for p in unit_prices if is_whole_peso(p)) / len(unit_prices)
 
 
 def distinct_per_item(rows: Iterable[tuple[str, str, object, object]]) -> dict[str, dict[str, float]]:

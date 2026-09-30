@@ -35,3 +35,16 @@ def is_round_amount(centavos) -> bool:
     The ledger reader must use this same definition for `round_amount_share`.
     """
     return centavos > 0 and centavos % ROUND_HUNDRED == 0
+
+
+TIDY_CENTS = (0, 50, 75)  # the only cents a rate-card unit price may carry (FR-F5)
+
+
+def is_whole_peso(centavos) -> bool:
+    """No cents: what the whole-peso share counts (FR-F5, FR-I3)."""
+    return centavos % 100 == 0
+
+
+def is_tidy_cents(centavos) -> bool:
+    """Whole pesos or .50 / .75, never random cents (FR-F5, T19)."""
+    return centavos % 100 in TIDY_CENTS

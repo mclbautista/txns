@@ -8,7 +8,8 @@ from txns.writer import row_violations
 def format_check(ctx: ScoreContext) -> CheckResult:
     bad = []
     for n, row in enumerate(ctx.rows, start=1):
-        problems = row_violations(row)
+        item = ctx.item(row.item_id)
+        problems = row_violations(row, decimal=item is not None and item.decimal)
         if problems:
             bad.append(f"row {n}: {'; '.join(problems)}")
     if bad:
