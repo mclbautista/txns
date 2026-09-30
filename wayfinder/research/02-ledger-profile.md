@@ -1,6 +1,6 @@
 # Ledger profile (input for ticket 02)
 
-Source: three uploaded yearly account-transaction exports (2023, 2024, 2025), Xero-style, grouped by expense account. Aggregates only: no vendor, person or client names are reproduced here, and per-row amounts are not listed. Raw CSVs are not committed.
+Source: three uploaded yearly account-transaction exports (2023, 2024, 2025), Xero-style, grouped by expense account. Aggregates only: no vendor, person or client names are reproduced here, and per-row amounts are not listed. The raw CSVs are stored in `inputs/ledgers/` (private repo, Cyril 2026-09-30; ADR 0005). They contain vendor and person names, so this profile still lists aggregates only.
 
 ## Shape
 - Columns: Date, Source, Description ("Vendor - item text"), Reference, Debit, Credit, Running Balance, Gross, Tax. There is no qty or unit_price column.

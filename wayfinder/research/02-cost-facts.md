@@ -124,4 +124,4 @@ Storylines (delivery season, archive migration, festival trip, parties, studio u
 5. Any real quotes for stage or facility hire and catering per head.
 
 ## 9. Method and limits
-Ledger figures are computed from three exported account-transaction files with vendor and person names removed; only aggregates and rounded example points are shown, and the raw files are not stored in the repo. Web figures were retrieved 2026-09-30; US-only list prices are converted only in section 2.1, with the arithmetic shown. Everything not tagged S or D is an unsourced judgement.
+Ledger figures are computed from three exported account-transaction files with vendor and person names removed; only aggregates and rounded example points are shown, and the raw files are stored in `inputs/ledgers/` in this private repo (ADR 0005). Web figures were retrieved 2026-09-30; US-only list prices are converted only in section 2.1, with the arithmetic shown. Everything not tagged S or D is an unsourced judgement.

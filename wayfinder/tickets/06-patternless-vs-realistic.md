@@ -24,6 +24,6 @@ Story 3 wants data that defeats simple anomaly detection while stories above wan
   - Closing rows always petty or top-up: closing draws from a wider set of small ordinary occurrences.
   - Uniform jitter is already covered by the closed menu of named distributions (ticket 04).
 - **Measurement:** metric bands only. No classifier test.
-- **Reference data:** `author` derives a `reference.json` of summary statistics from Cyril's ledgers into the bundle. No row-level ledger data is ever committed.
+- **Reference data:** `author` derives a `reference.json` of summary statistics from Cyril's ledgers into the bundle. The raw ledgers live in `inputs/ledgers/` in this private repo (Cyril, 2026-09-30; ADR 0005, supersedes the earlier "never committed" rule). `generate` never reads them; bundles carry only `reference.json`.
 - **Failure behaviour:** `generate` always writes the CSV and prints the scorecard (pass / warn / fail). It exits non-zero on a hard failure. Hard set: duplicates, plug rows, price stability, gap rules. Everything else, Benford included, only warns.
 - **Dropped:** a cross-seed comparison command (not needed).

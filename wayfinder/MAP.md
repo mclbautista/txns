@@ -74,7 +74,7 @@ A **design spec** (architecture + data model + decisions) for a one-command, see
   - Pass bar: ledger-relative where the ledgers give a reference, absolute where they don't; realism wins on conflict.
   - Seven anomaly checks (duplicates, round share, Benford report-only, per-item outliers, interval regularity, weekday/holiday/month-end shape, distinct prices and quantities). One fixed tolerance: pass +-25%, warn to +-50%, fail beyond.
   - Protected structure never loosened by corrections. Fingerprints designed out: tight total band, identical monthly counts across seeds, perfect date sorting, always-petty closing rows.
-  - Bundle holds ledger summary stats (`reference.json`), never raw rows. CSV is always written; non-zero exit on hard failure (duplicates, plug rows, price stability, gap rules).
+  - Bundle holds ledger summary stats (`reference.json`), never raw rows (the raw ledgers live in `inputs/ledgers/`, private repo, ADR 0005). CSV is always written; non-zero exit on hard failure (duplicates, plug rows, price stability, gap rules).
 
 - **Ticket 07 (done, Cyril 2026-09-30):** spot-check = human reviewer compares the output CSV with its bundle, then talks to Claude about repo updates. Learning from corrections = a GitHub ticket. No corrections file or `--corrections` flag in the tool.
 
