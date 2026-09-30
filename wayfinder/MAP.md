@@ -32,7 +32,7 @@ A **design spec** (architecture + data model + decisions) for a one-command, see
 | 05 | Quantity and price model | closed |
 | 06 | Patternless vs realistic | closed |
 | 07 | Correction feedback loop | closed |
-| 08 | Config and CLI shape | in progress (prototype built; `approve` and exit codes pending) |
+| 08 | Config and CLI shape | closed |
 
 ## Decisions so far
 
@@ -77,6 +77,8 @@ A **design spec** (architecture + data model + decisions) for a one-command, see
   - Bundle holds ledger summary stats (`reference.json`), never raw rows. CSV is always written; non-zero exit on hard failure (duplicates, plug rows, price stability, gap rules).
 
 - **Ticket 07 (done, Cyril 2026-09-30):** spot-check = human reviewer compares the output CSV with its bundle, then talks to Claude about repo updates. Learning from corrections = a GitHub ticket. No corrections file or `--corrections` flag in the tool.
+
+- **Ticket 08 (done, Cyril 2026-09-30):** prototype at `prototypes/08-config-cli/`. Commands `author`, `approve` (kept, used after hand-editing a bundle) and `generate`; one TOML config; distinct exit codes 0-6 accepted; no corrections input (ticket 07).
 
 ## Not yet specified
 

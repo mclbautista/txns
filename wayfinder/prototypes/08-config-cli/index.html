@@ -20,7 +20,7 @@ pre{background:#161615;color:#e8e6dc;padding:12px;border-radius:8px;font-size:12
 </style></head><body>
 <h1>PROTOTYPE, throwaway: what does <code>txns</code> look like to run every quarter?</h1>
 <p class="mut"><b>Question (ticket 08):</b> given the decisions in tickets 03 to 06 (separate <code>author</code> and <code>generate</code>, bundle folders, <code>run.json</code>, target and band as config values, latest full quarter as default span), is one small config file plus two commands enough to make a quarter take 30 seconds, run unattended, and fail sensibly? Nothing here writes files; the CLI is simulated by the pure module in the script. Assumption stated: the sizes (about ₱4,450 per row) and the failure triggers are invented to make the cases visible.</p>
-<div class="warn">Proposed commands: <code>txns author [--corrections FILE] [--label NAME]</code> · <code>txns approve [BUNDLE]</code> · <code>txns generate [--config txns.toml] [--seed N] [--bundle LABEL-HASH]</code>. Config is one TOML file; everything except <code>out</code> and <code>log</code> is hashed into run identity.</div>
+<div class="warn">Proposed commands: <code>txns author [--label NAME] [--label NAME]</code> · <code>txns approve [BUNDLE]</code> · <code>txns generate [--config txns.toml] [--seed N] [--bundle LABEL-HASH]</code>. Config is one TOML file; everything except <code>out</code> and <code>log</code> is hashed into run identity.</div>
 
 <div class="grid">
 <div><h2>Config (txns.toml)</h2><div class="panel" id="cfg"></div>
@@ -116,7 +116,7 @@ function render(){
  $('state').innerHTML=`<table><tr class="${S.changed.includes('today')?'chg':''}"><td class=k>today</td><td>${S.today} (auto span = ${q.label}, ${q.start} to ${q.end})</td></tr>
  <tr class="${S.changed.includes('bundles')?'chg':''}"><td class=k>bundles/</td><td>${S.bundles.map(b=>`${b.id}${b.reviewed?' ✓reviewed':' (unreviewed)'}`).join('<br>')||'(empty)'}</td></tr>
  <tr class="${S.changed.includes('runs')?'chg':''}"><td class=k>runs</td><td>${S.runs.map(r=>`#${r.n} ${r.period} seed ${r.seed} ${r.bundle} id ${r.id.slice(0,6)} ${r.rows} rows ${Txns.money(r.total)} exit ${r.code}`).join('<br>')||'(none)'}</td></tr></table>`;
- $('free').innerHTML=`<button class=p onclick="act({t:'author'})">txns author</button><button onclick="act({t:'author',corr:'2026Q3-spotcheck'})">txns author --corrections …</button><button onclick="act({t:'approve'})">txns approve</button><button class=p onclick="act({t:'generate'})">txns generate</button><button onclick="act({t:'nextQuarter'})">→ next quarter arrives</button><button onclick="S=Txns.init();render()">reset</button>`;
+ $('free').innerHTML=`<button class=p onclick="act({t:'author'})">txns author</button><button onclick="act({t:'approve'})">txns approve</button><button class=p onclick="act({t:'generate'})">txns generate</button><button onclick="act({t:'nextQuarter'})">→ next quarter arrives</button><button onclick="S=Txns.init();render()">reset</button>`;
  $('term').textContent=S.out.join('\n')||'(no commands run yet)';$('term').scrollTop=1e9;
 }
 const setk=(k,v)=>({t:'set',k,v}),wk=(k,v)=>({t:'world',k,v});
