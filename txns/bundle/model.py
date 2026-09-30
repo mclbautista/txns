@@ -15,7 +15,8 @@ Bundle files (all JSON, top level of the bundle folder):
                   `vendor` (optional) holds the vendor-prefixed descriptive variants;
                   each is used only on rows whose price point that seller sells (FR-H1).
                   Gates on this text: `txns.bundle.text_rules`.
-- storylines.json {name: {description, ...}}
+- storylines.json {name: {description, month_weights?, burst_days?, bursts_per_quarter?,
+                          quiet_days?}} (FR-E10, see `txns.bundle.storylines`)
 - rules.json      {"archetypes": {name: {...}}, "tier_factors": {...},
                    "calendar": {...} (day shape, see txns.engine.calendar)}
 - holidays.json   Philippine holiday calendar for the bundle's years (txns.holidays)
@@ -222,10 +223,12 @@ def read_json_files(folder: Path) -> dict[str, Any]:
 def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) -> Bundle:
     """Structural checks that `generate` relies on; failures exit 4."""
     from txns.bundle import prices  # rate-card rules; imports this module
+    from txns.bundle import storylines as storyline_rules
 
     storylines = data["storylines"]
     if not isinstance(storylines, dict) or not storylines:
         raise _bad("storylines.json must map at least one storyline name to its settings")
+    storyline_rules.check(storylines, data["rules"])
     catalog = data["catalog"].get("items") if isinstance(data["catalog"], dict) else None
     if not isinstance(catalog, dict) or not catalog:
         raise _bad("catalog.json must have a non-empty `items` table")
