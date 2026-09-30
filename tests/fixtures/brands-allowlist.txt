@@ -1,0 +1,5 @@
+# Fixture brand allowlist for tests (fabricated brands only).
+# The real inputs/brands-allowlist.txt is supplied by the owner; never copy it here.
+Streamwave
+
+Pixelforge Software
