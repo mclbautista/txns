@@ -6,6 +6,7 @@
     ws.write_config('tier = "high"\n')        # ws/txns.toml, on top of FIXTURE_CONFIG
     r = ws.run("generate", "--seed", "7")     # r.code, r.stdout, r.stderr
     r.csv_bytes, r.run_json, r.rows           # outputs of the last generate
+    ws.install_author_inputs()                # committed author inputs + fixture ledgers in ws/inputs
 """
 
 from __future__ import annotations
@@ -28,6 +29,9 @@ from txns.bundle import store
 from txns.cli import main
 
 FIXTURE_BUNDLE = Path(__file__).parent / "fixtures" / "bundle"
+FIXTURE_LEDGERS = Path(__file__).parent / "fixtures" / "ledgers"  # fabricated names only
+REPO_ROOT = Path(__file__).parent.parent
+AUTHOR_INPUTS = ("spend-only.json", "ph-holidays.json")  # committed inputs `author` reads
 DEFAULT_TODAY = date(2026, 10, 5)  # auto period = 2026-07-01 .. 2026-09-30
 
 # The fixture bundle spends about ₱25k a quarter, far below the ₱4M default
@@ -165,3 +169,14 @@ class Workspace:
 
     def remove(self, rel: str) -> None:
         shutil.rmtree(self.cwd / rel, ignore_errors=True)
+
+    def install_author_inputs(self, ledgers: Path | None = FIXTURE_LEDGERS) -> Path:
+        """Copy the committed author inputs and the fixture ledgers into ./inputs; returns inputs/ledgers."""
+        inputs = self.cwd / "inputs"
+        inputs.mkdir(exist_ok=True)
+        for name in AUTHOR_INPUTS:
+            shutil.copyfile(REPO_ROOT / "inputs" / name, inputs / name)
+        target = inputs / "ledgers"
+        if ledgers is not None:
+            shutil.copytree(ledgers, target, dirs_exist_ok=True)
+        return target

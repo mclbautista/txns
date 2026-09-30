@@ -8,8 +8,16 @@ Per-category figures are keyed by the catalog `category` string.
 
 Keys in use (add yours here, one line each, in alphabetical order):
 
+    anchor_prices           {category: [{"unit_price": int, "rows": int}]}, unit prices
+                            seen on 2+ rows of the category, ascending (ledger only)
+    category_amount_percentiles  {category: {"p10": int, ..., "p90": int}}, row amounts
+                            per category, nearest rank
+    category_totals         {category: {"rows": int, "spend": int}} over all ledgers
     distinct_per_item       {category: {"prices": float, "quantities": float}}
                             mean distinct unit prices / quantities per item
+    duplicate_group_rate    float, groups of 2+ rows with the same date, amount and
+                            category (ledger) or item (generated) per row
+                            (`duplicate_group_rate`)
     holiday_share           float, share of non-subscription rows dated on a regular
                             holiday (`holiday_share`, calendar from the bundle)
     month_end_share         float, share of rows in the last MONTH_END_DAYS days of
@@ -17,13 +25,19 @@ Keys in use (add yours here, one line each, in alphabetical order):
     monthly_spread          {"rows": float, "spend": float}: coefficient of variation
                             of per-day monthly row count / spend, averaged over
                             calendar quarters (`monthly_spread`)
+    pack_sizes              {category: [{"qty": int, "rows": int}]}, pack sizes > 1
+                            stated in ledger item text ("15pcs"), ascending
+    quarter_totals          {"2024Q1": {"rows": int, "spend": int}}, per full calendar
+                            quarter of the ledgers (rows and spend per period)
     round_amount_share      float, share of rows whose amount is a whole ₱100
                             (`txns.money.is_round_amount`)
     row_amount_percentiles  {"p10": int, "p25": int, "p50": int, "p75": int, "p90": int}
                             row amount (qty x unit_price) in centavos, nearest rank
     terse_share             {category: float}, share of the category's rows whose
                             item text is terse (short, unattributed, e.g. "Coffee");
-                            the engine draws terse text at this rate (FR-H1)
+                            the engine draws terse text at this rate (FR-H1). From
+                            the ledger it is the textless share: rows naming no item
+                            after the vendor (`txns.ledger.stats`)
     weekday_shares          {"mon": float, ..., "sun": float}, share of rows per weekday
     whole_peso_share        float, share of rows whose unit price has no cents
                             (`txns.money.is_whole_peso`)
@@ -104,6 +118,17 @@ def terse_share(rows: Iterable[tuple[str, bool]]) -> dict[str, float]:
         seen[category][0] += 1
         seen[category][1] += 1 if is_terse else 0
     return {cat: round(seen[cat][1] / seen[cat][0], 4) for cat in sorted(seen)}
+
+
+def duplicate_group_rate(rows: Sequence[tuple]) -> float | None:
+    """Rows as (date, key, amount) -> groups of 2+ identical rows, per row.
+
+    The key is the account category (ledger) or the catalog item id (generated rows).
+    """
+    if not rows:
+        return None
+    groups = sum(1 for n in Counter(rows).values() if n >= 2)
+    return round(groups / len(rows), 4)
 
 
 def _mean(counts: Iterable[int]) -> float:
