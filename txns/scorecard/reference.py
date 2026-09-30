@@ -21,7 +21,12 @@ Keys in use (add yours here, one line each, in alphabetical order):
                             (`txns.money.is_round_amount`)
     row_amount_percentiles  {"p10": int, "p25": int, "p50": int, "p75": int, "p90": int}
                             row amount (qty x unit_price) in centavos, nearest rank
+    terse_share             {category: float}, share of the category's rows whose
+                            item text is terse (short, unattributed, e.g. "Coffee");
+                            the engine draws terse text at this rate (FR-H1)
     weekday_shares          {"mon": float, ..., "sun": float}, share of rows per weekday
+    whole_peso_share        float, share of rows whose unit price has no cents
+                            (`txns.money.is_whole_peso`)
 
 The functions below are the one definition of each measure: the scorecard
 applies them to generated rows and the ledger reader (ticket 12) to ledger
@@ -37,7 +42,7 @@ from collections import Counter, defaultdict
 from datetime import date
 from typing import Iterable, Mapping, Sequence
 
-from txns.money import is_round_amount
+from txns.money import is_round_amount, is_whole_peso
 
 PERCENTILES = (10, 25, 50, 75, 90)
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -63,6 +68,12 @@ def round_amount_share(amounts: Sequence) -> float | None:
     return sum(1 for a in amounts if is_round_amount(a)) / len(amounts)
 
 
+def whole_peso_share(unit_prices: Sequence) -> float | None:
+    if not unit_prices:
+        return None
+    return sum(1 for p in unit_prices if is_whole_peso(p)) / len(unit_prices)
+
+
 def distinct_per_item(rows: Iterable[tuple[str, str, object, object]]) -> dict[str, dict[str, float]]:
     """Rows as (category, item key, unit_price, qty) -> per-category mean distinct counts per item.
 
@@ -80,6 +91,19 @@ def distinct_per_item(rows: Iterable[tuple[str, str, object, object]]) -> dict[s
         }
         for cat in sorted(prices)
     }
+
+
+def terse_share(rows: Iterable[tuple[str, bool]]) -> dict[str, float]:
+    """Rows as (category, is_terse) -> per-category share of terse rows.
+
+    Generated rows are classed by the bundle variant their text is; the ledger
+    reader (ticket 12) supplies its own terse/descriptive classification.
+    """
+    seen: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for category, is_terse in rows:
+        seen[category][0] += 1
+        seen[category][1] += 1 if is_terse else 0
+    return {cat: round(seen[cat][1] / seen[cat][0], 4) for cat in sorted(seen)}
 
 
 def _mean(counts: Iterable[int]) -> float:

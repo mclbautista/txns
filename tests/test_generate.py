@@ -19,7 +19,8 @@ CSV_NAME = re.compile(r"^txns-2026Q3-[0-9a-f]{6}\.csv$")
 def text_to_item(files):
     index = {}
     for item_id, variants in files["text"].items():
-        for t in variants["descriptive"] + variants["terse"]:
+        vendor = [v["text"] for v in variants.get("vendor", [])]
+        for t in variants["descriptive"] + vendor + variants["terse"]:
             assert t not in index, "fixture texts must be unique per item for these tests"
             index[t] = item_id
     return index

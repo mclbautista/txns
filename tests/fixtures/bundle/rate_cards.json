@@ -28,11 +28,11 @@
   "pantry.water": {
     "points": [
       {
-        "unit_price": 3500,
+        "unit_price": 3750,
         "seller": "water-1"
       },
       {
-        "unit_price": 4000,
+        "unit_price": 4250,
         "seller": "water-2"
       }
     ],
@@ -54,11 +54,11 @@
   "pantry.snacks": {
     "points": [
       {
-        "unit_price": 25000,
+        "unit_price": 24950,
         "seller": "grocery-1"
       },
       {
-        "unit_price": 32000,
+        "unit_price": 31975,
         "seller": "grocery-2"
       }
     ],
@@ -80,7 +80,7 @@
         "seller": "courier-1"
       },
       {
-        "unit_price": 22000,
+        "unit_price": 21950,
         "seller": "courier-2"
       }
     ],

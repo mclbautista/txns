@@ -260,7 +260,7 @@ def sparse_bundle(files):
             files,
             f"supply.item_{i:02d}",
             storyline="office_pantry",
-            points=[(12345 + 100 * i, "shop-1")],
+            points=[(12350 + 100 * i, "shop-1")],
             quantities=[(1, 1)],
             descriptive=[f"Pantry supply number {i}"],
             params={"per_week": 0.15},
