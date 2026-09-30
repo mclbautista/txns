@@ -14,6 +14,30 @@
       ]
     }
   },
+  "calendar": {
+    "daily_ceiling": 3.0,
+    "holiday_leak": 0.05,
+    "holy_week_factor": 0.8,
+    "month_end": {
+      "days": 3,
+      "factor": 1.1
+    },
+    "month_weights": {
+      "10": 1.2,
+      "11": 1.3,
+      "12": 1.4
+    },
+    "special_day_factor": 0.5,
+    "weekday_weights": [
+      17,
+      17,
+      17,
+      17,
+      17,
+      9,
+      5
+    ]
+  },
   "tier_factors": {
     "independent": 0.5,
     "mid": 1.0,

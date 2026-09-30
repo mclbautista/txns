@@ -14,6 +14,7 @@ from txns.bundle import store
 from txns.canonical import sha256_hex
 from txns.commands import Runtime
 from txns.config import load_config, parse_seed, resolve
+from txns.engine.calendar import coverage_warning
 from txns.errors import ExitCode
 from txns.money import format_centavos, format_pesos
 from txns.writer import write_outputs
@@ -65,6 +66,10 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
     resolved = resolve(cfg, today=rt.today, bundle_id=bundle.id, storylines=list(bundle.storylines), seed=seed)
     config_hash = resolved.config_hash()
     rid = run_id(seed, bundle.hash, config_hash)
+    uncovered = coverage_warning(bundle.calendar, resolved.period.start, resolved.period.end)
+    if uncovered:
+        warnings.append(uncovered)
+        rt.warn(uncovered)
 
     rows = engine.generate(seed, bundle, resolved)
     report = scorecard.score(rows, bundle, resolved)

@@ -13,7 +13,9 @@ Grading (FR-I1):
 - ledger-relative metrics: `relative(...)` grades against a `reference.json`
   figure with the run's `tolerance_pct` (pass within ±tol, warn to ±2×tol,
   fail beyond). With no figure in `reference.json` the metric passes, marked
-  "no ledger reference".
+  "no ledger reference". `relative_noisy(...)` does the same for a figure
+  measured on a sample (shares, spreads): the pass band is at least two
+  standard errors wide, so a small run is not flagged for sampling noise.
 - absolute rules (FR-E, FR-F): the check decides; soft ones report pass/warn.
 Only a FAIL on a check registered with `hard=True` exits 1 (FR-I5). A FAIL on
 a soft check is shown and recorded but never changes the exit code.
@@ -21,8 +23,10 @@ a soft check is shown and recorded but never changes the exit code.
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date
 from functools import cached_property
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
@@ -72,6 +76,14 @@ class ScoreContext:
     @cached_property
     def total(self):
         return sum(self.amounts)
+
+    @cached_property
+    def span(self) -> tuple[date, date] | None:
+        """The run's period; for an external CSV, its first to last row date (None with no rows)."""
+        if self.config is not None:
+            return self.config.period.start, self.config.period.end
+        dates = [r.date for r in self.rows]
+        return (min(dates), max(dates)) if dates else None
 
 
 @dataclass(frozen=True)
@@ -146,6 +158,47 @@ def relative(
     off = f"{dev:.0f}%" if dev is not None else "n/a"
     detail = f"{what} {fmt(value)} vs ledger {fmt(reference)} (off {off}, tolerance ±{ctx.tolerance_pct}%)"
     return result(name, status, detail, value, reference)
+
+
+def relative_noisy(
+    ctx: ScoreContext,
+    name: str,
+    value: float | None,
+    reference: float | None,
+    se: float | None,
+    *,
+    what: str,
+    fmt: Callable[[Any], str] = str,
+    one_sided: bool = False,
+) -> CheckResult:
+    """`relative` for a sampled figure: the pass band is at least two standard errors.
+
+    A share or spread measured on a few hundred rows moves by more than the
+    run's tolerance from sampling alone, so the band is widened to 2 x `se`
+    (the figure's standard error at this sample size) when that is wider; the
+    warn band stays double the pass band. `one_sided` passes anything at or
+    below the reference (for figures that should be near zero, like the
+    holiday share).
+    """
+    if value is None or reference is None:
+        return relative(ctx, name, value, reference, what=what, fmt=fmt)
+    tol = ctx.tolerance_pct
+    widened = bool(se) and reference != 0 and 200 * se / abs(reference) > tol
+    if widened:
+        tol = 200 * se / abs(reference)
+    if one_sided and value <= reference:
+        return result(name, PASS, f"{what} {fmt(value)}, at or below ledger {fmt(reference)}", value, reference)
+    status = grade(value, reference, tol)
+    dev = deviation_pct(value, reference)
+    off = f"{dev:.0f}%" if dev is not None else "n/a"
+    band = f"{'at most +' if one_sided else '±'}{tol:.0f}%{' incl. sampling noise' if widened else ''}"
+    detail = f"{what} {fmt(value)} vs ledger {fmt(reference)} (off {off}, tolerance {band})"
+    return result(name, status, detail, value, reference)
+
+
+def share_se(share: float, n: int) -> float:
+    """Standard error of a share measured on n rows."""
+    return math.sqrt(max(share * (1 - share), 0.0) / n) if n else 0.0
 
 
 def listing(items: Sequence[str], limit: int = 3) -> str:
