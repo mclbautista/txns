@@ -8,7 +8,7 @@ tracker: local-markdown in this repo (tickets in ./tickets)
 
 A **design spec** (architecture + data model + decisions) for a one-command, seed-deterministic tool that emits a realistic, human-looking, high-volume ledger CSV (`date, qty, unit_price, item/service`, ≥ ₱4M per run) for load-testing a post-production facility's financial review system. Deterministic code does the generating; LLM calls only make the inputs (catalogs, rate cards, vocabulary, corrections) more realistic. Ends when someone can hand the spec to an implementer with nothing left to decide.
 
-> Drafted from the topic + `user stories.md`, not yet confirmed by Cyril. See ticket 01.
+> Confirmed by Cyril in the destination-and-realism-bar ticket.
 
 ## Notes
 
@@ -23,7 +23,7 @@ A **design spec** (architecture + data model + decisions) for a one-command, see
 
 ## Decisions so far
 
-_(none yet)_
+- [Destination and realism bar](tickets/01-destination-and-realism-bar.md): spec-only destination; ₱4M is a per-quarter qty × price floor; data must survive eyeballing, per-item/month totals, and five anomaly checks (Benford, duplicates, round numbers, weekend/holiday, same-day clustering); corrections are marked rows with reasons.
 
 ## Not yet specified
 
