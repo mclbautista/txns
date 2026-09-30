@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 
 
 @dataclass(frozen=True)
@@ -24,7 +25,7 @@ class Occurrence:
 @dataclass(frozen=True)
 class Row:
     date: date
-    qty: int
+    qty: int | Decimal  # Decimal only on items marked decimal (FR-F3)
     unit_price: int  # centavos
     text: str
     item_id: str | None = None  # None when scoring an external CSV
@@ -33,6 +34,9 @@ class Row:
     tags: tuple[str, ...] = field(default=())
 
     @property
-    def amount(self) -> int:
-        """qty x unit_price, in centavos."""
-        return self.qty * self.unit_price
+    def amount(self) -> int | Decimal:
+        """qty x unit_price, in centavos (an int whenever it is whole, as it always is for bundle rows)."""
+        amount = self.qty * self.unit_price
+        if isinstance(amount, Decimal) and amount == amount.to_integral_value():
+            return int(amount)
+        return amount

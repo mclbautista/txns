@@ -1,6 +1,8 @@
 """Quantity and price drawer (FR-F): a rate-card point and an allowed quantity per occurrence.
 
-Price steps, volume tiers and decimal quantities arrive with ticket 09.
+Per row: the rate card valid on the row's date (price steps, FR-F2), one of its
+points (seller), a quantity from the allowed set (FR-F3), then that point's
+fixed price for the quantity (volume tiers, FR-F4). No price is ever computed.
 """
 
 from __future__ import annotations
@@ -21,15 +23,16 @@ def draw(ctx: EngineContext, occurrences: list[Occurrence]) -> list[Row]:
             )
         price_stream, qty_stream = streams[occ.item_id]
         item = ctx.bundle.items[occ.item_id]
-        points = round_figures.point_choices(item)
+        card = item.points_on(occ.date)
+        points = round_figures.point_choices(item, occ.date)
         point = points[price_stream.below(len(points))]
-        options = round_figures.qty_choices(item, item.price_points[point].unit_price)
+        options = round_figures.qty_choices(item, card[point])
         q = options[qty_stream.weighted_index([o.weight for o in options])]
         rows.append(
             Row(
                 date=occ.date,
                 qty=q.qty,
-                unit_price=item.price_points[point].unit_price,
+                unit_price=card[point].price_for(q.qty),
                 text="",
                 item_id=item.id,
                 storyline=item.storyline,

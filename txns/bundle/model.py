@@ -5,8 +5,11 @@ Bundle files (all JSON, top level of the bundle folder):
 - manifest.json   label, hash, promotion, reviewed, interpreter, generator,
                   model, served_models, ledger_hashes, format
 - catalog.json    {"items": {item_id: {storyline, category, class, archetype, params}}}
-- rate_cards.json {item_id: {"points": [{unit_price (int centavos), seller}],
-                             "quantities": [{qty (int), weight (int)}]}}
+- rate_cards.json {item_id: {"points": [{unit_price (int centavos), seller, tiers?}],
+                             "quantities": [{qty (int), weight (int)}],
+                             "steps"?: [{date, points}]}}
+                  (volume tiers, price steps, decimal quantities: see
+                  `txns.bundle.prices`, which parses and checks rate cards)
 - text.json       {item_id: {"descriptive": [...], "terse": [...]}}
 - storylines.json {name: {description, ...}}
 - rules.json      {"archetypes": {name: {...}}, "tier_factors": {...}}
@@ -22,6 +25,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -41,14 +46,44 @@ PRICE_CLASSES = ("subscription", "retail", "big_ticket")
 
 
 @dataclass(frozen=True)
-class PricePoint:
+class Tier:
+    """A volume tier (FR-F4): from `min_qty` up, the point's unit price is `unit_price`."""
+
+    min_qty: int
     unit_price: int  # centavos
+
+
+@dataclass(frozen=True)
+class PricePoint:
+    unit_price: int  # centavos; the price below the first tier
     seller: str | None = None
+    tiers: tuple[Tier, ...] = ()  # ascending min_qty, descending price; at most 2 (3 tiers in all)
+
+    def price_for(self, qty: int | Decimal) -> int:
+        """The fixed unit price for `qty` (volume tiers are looked up, never computed)."""
+        price = self.unit_price
+        for tier in self.tiers:
+            if qty >= tier.min_qty:
+                price = tier.unit_price
+        return price
+
+    @property
+    def figures(self) -> tuple[int, ...]:
+        """Every unit price this point can show: the base price and its tier prices."""
+        return (self.unit_price,) + tuple(t.unit_price for t in self.tiers)
+
+
+@dataclass(frozen=True)
+class PriceStep:
+    """A dated price step (FR-F2): from `date` on, the item's points are `points` (same sellers, same order)."""
+
+    date: date
+    points: tuple[PricePoint, ...]
 
 
 @dataclass(frozen=True)
 class QtyOption:
-    qty: int
+    qty: int | Decimal  # Decimal only on items marked `decimal`
     weight: int
 
 
@@ -65,6 +100,34 @@ class Item:
     descriptive: tuple[str, ...]
     terse: tuple[str, ...]
     raw: Mapping[str, Any] = field(default_factory=dict)
+    decimal: bool = False  # catalog `decimal`: qty may be a decimal (FR-F3)
+    goods: str | None = None  # catalog `goods`: "stock" | "hardware" (volume tiers allowed, FR-F4)
+    steps: tuple[PriceStep, ...] = ()  # dated price steps, ascending, at most one per year (FR-F2)
+
+    def points_on(self, day: date | None) -> tuple[PricePoint, ...]:
+        """The rate card valid on `day`: the last step dated on or before it, else the base points.
+
+        `price_points` is the base card; `Row.price_point` indexes either (sellers keep their index).
+        """
+        points = self.price_points
+        for step in self.steps:
+            if day is not None and step.date <= day:
+                points = step.points
+        return points
+
+    def prices_between(self, start: date, end: date) -> set[int]:
+        """Every unit price (points and tiers) the item may show on some day in [start, end]."""
+        versions = [self.points_on(start)] + [s.points for s in self.steps if start < s.date <= end]
+        return {price for points in versions for p in points for price in p.figures}
+
+    def retired_prices(self, day: date) -> set[int]:
+        """Prices replaced by a step on or before `day` that the card valid on `day` no longer lists."""
+        taken = [s for s in self.steps if s.date <= day]
+        if not taken:
+            return set()
+        older = (self.price_points,) + tuple(s.points for s in taken[:-1])
+        current = {price for p in taken[-1].points for price in p.figures}
+        return {price for points in older for p in points for price in p.figures} - current
 
     @property
     def round_figures_approved(self) -> bool:
@@ -133,12 +196,10 @@ def read_json_files(folder: Path) -> dict[str, Any]:
     return data
 
 
-def _pos_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
-
-
 def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) -> Bundle:
     """Structural checks that `generate` relies on; failures exit 4."""
+    from txns.bundle import prices  # rate-card rules; imports this module
+
     storylines = data["storylines"]
     if not isinstance(storylines, dict) or not storylines:
         raise _bad("storylines.json must map at least one storyline name to its settings")
@@ -162,15 +223,7 @@ def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) ->
         card = rate_cards.get(item_id)
         if not isinstance(card, dict):
             raise _bad(f"{where}: no rate card")
-        points = card.get("points") or []
-        if not points or not all(isinstance(p, dict) and _pos_int(p.get("unit_price")) for p in points):
-            raise _bad(f"{where}: rate card needs price points with positive integer `unit_price` (centavos)")
-        qtys = card.get("quantities") or []
-        if not qtys or not all(
-            isinstance(q, dict) and _pos_int(q.get("qty")) and isinstance(q.get("weight"), int) and q["weight"] >= 0
-            for q in qtys
-        ) or sum(q["weight"] for q in qtys) <= 0:
-            raise _bad(f"{where}: rate card needs an allowed quantity set with integer weights")
+        rate_card = prices.parse_card(where, entry, card)
         variants = text.get(item_id)
         if not isinstance(variants, dict):
             raise _bad(f"{where}: no text variants")
@@ -185,11 +238,14 @@ def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) ->
             price_class=entry["class"],
             archetype=entry["archetype"],
             params=MappingProxyType(dict(entry.get("params") or {})),
-            price_points=tuple(PricePoint(p["unit_price"], p.get("seller")) for p in points),
-            quantities=tuple(QtyOption(q["qty"], q["weight"]) for q in qtys),
+            price_points=rate_card.points,
+            quantities=rate_card.quantities,
             descriptive=descriptive,
             terse=terse,
             raw=MappingProxyType(entry),
+            decimal=rate_card.decimal,
+            goods=rate_card.goods,
+            steps=rate_card.steps,
         )
     return Bundle(
         id=bundle_id,
