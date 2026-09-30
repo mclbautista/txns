@@ -66,6 +66,14 @@ class Item:
     terse: tuple[str, ...]
     raw: Mapping[str, Any] = field(default_factory=dict)
 
+    @property
+    def round_figures_approved(self) -> bool:
+        """Only approved big-ticket items may carry round-thousand amounts (FR-F6).
+
+        The one place that decides it; the drawer and the plug-row check both ask here.
+        """
+        return self.price_class == "big_ticket"
+
 
 @dataclass(frozen=True)
 class Bundle:
@@ -93,6 +101,16 @@ class Bundle:
 
     def archetype_rules(self, name: str) -> Mapping[str, Any]:
         return self.rules.get("archetypes", {}).get(name, {})
+
+    def gap_rules(self, item: Item) -> tuple[int, int]:
+        """(max rows per day, minimum gap in days) for an item (FR-E5).
+
+        Per-item `params` override the archetype's rules; defaults 1 and 1.
+        """
+        rules = self.archetype_rules(item.archetype)
+        max_per_day = item.params.get("max_per_day", rules.get("max_per_day", 1))
+        min_gap = item.params.get("min_gap_days", rules.get("min_gap_days", 1))
+        return int(max_per_day), int(min_gap)
 
     def items_in(self, storyline: str) -> list[Item]:
         return [i for i in self.items.values() if i.storyline == storyline]

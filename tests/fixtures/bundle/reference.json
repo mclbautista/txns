@@ -1,1 +1,32 @@
-{}
+{
+  "distinct_per_item": {
+    "Delivery and Freight": {
+      "prices": 2.0,
+      "quantities": 2.0
+    },
+    "Meals and Entertainment": {
+      "prices": 2.0,
+      "quantities": 2.5
+    },
+    "Office Expenses": {
+      "prices": 2.0,
+      "quantities": 3.0
+    },
+    "Telephone and Internet": {
+      "prices": 2.0,
+      "quantities": 1.0
+    },
+    "Transportation": {
+      "prices": 2.0,
+      "quantities": 1.0
+    }
+  },
+  "round_amount_share": 0.08,
+  "row_amount_percentiles": {
+    "p10": 5000,
+    "p25": 6000,
+    "p50": 16500,
+    "p75": 33000,
+    "p90": 45000
+  }
+}

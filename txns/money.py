@@ -18,3 +18,20 @@ def format_pesos(centavos: int) -> str:
 
 def pesos_to_centavos(pesos: int) -> int:
     return pesos * 100
+
+
+ROUND_THOUSAND = 1_000_00  # ₱1,000 in centavos
+ROUND_HUNDRED = 100_00  # ₱100 in centavos
+
+
+def is_round_thousand(centavos) -> bool:
+    """A whole multiple of ₱1,000: the plug-row tell (FR-F6, FR-I5)."""
+    return centavos > 0 and centavos % ROUND_THOUSAND == 0
+
+
+def is_round_amount(centavos) -> bool:
+    """A whole multiple of ₱100: what the round-amount share counts (FR-I4 (2), FR-B4).
+
+    The ledger reader must use this same definition for `round_amount_share`.
+    """
+    return centavos > 0 and centavos % ROUND_HUNDRED == 0
