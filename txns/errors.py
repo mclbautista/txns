@@ -28,6 +28,10 @@ class MissingInput(TxnsError):
     exit_code = ExitCode.MISSING_INPUT
 
 
+class LLMUnreachable(TxnsError):
+    exit_code = ExitCode.LLM_UNREACHABLE
+
+
 class BundleInvalid(TxnsError):
     exit_code = ExitCode.BUNDLE_INVALID
 

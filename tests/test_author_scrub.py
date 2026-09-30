@@ -239,11 +239,13 @@ class LeakCheckTest(ScrubCase):
         self.ws.install_author_inputs()
         self.edit_ledger("Dinner for sound mix", "Dinner for Juan Dela Cruz")  # a name inside item text
         self.ok()  # leaves a good payload.json behind: a failed run must remove it
+        self.calls_before = len(self.ws.llm.requests)
 
     def assert_blocked(self, r):
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
         self.assertIn("leak check failed", r.stderr)
         self.assertIn("no LLM call made", r.stderr)
+        self.assertEqual(len(self.ws.llm.requests), self.calls_before)  # this run made no call
         self.assertFalse((self.ws.cwd / PAYLOAD).exists())
         self.assert_no_blocked_name(r.stdout + r.stderr)  # the report says where, not what
 
