@@ -31,8 +31,8 @@ A **design spec** (architecture + data model + decisions) for a one-command, see
 | 04 | Temporal recurrence model | closed |
 | 05 | Quantity and price model | closed |
 | 06 | Patternless vs realistic | closed |
-| 07 | Correction feedback loop | open (03 done, ready) |
-| 08 | Config and CLI shape | open (03 done, ready) |
+| 07 | Correction feedback loop | closed |
+| 08 | Config and CLI shape | in progress (prototype built; `approve` and exit codes pending) |
 
 ## Decisions so far
 
@@ -75,6 +75,8 @@ A **design spec** (architecture + data model + decisions) for a one-command, see
   - Seven anomaly checks (duplicates, round share, Benford report-only, per-item outliers, interval regularity, weekday/holiday/month-end shape, distinct prices and quantities). One fixed tolerance: pass +-25%, warn to +-50%, fail beyond.
   - Protected structure never loosened by corrections. Fingerprints designed out: tight total band, identical monthly counts across seeds, perfect date sorting, always-petty closing rows.
   - Bundle holds ledger summary stats (`reference.json`), never raw rows. CSV is always written; non-zero exit on hard failure (duplicates, plug rows, price stability, gap rules).
+
+- **Ticket 07 (done, Cyril 2026-09-30):** spot-check = human reviewer compares the output CSV with its bundle, then talks to Claude about repo updates. Learning from corrections = a GitHub ticket. No corrections file or `--corrections` flag in the tool.
 
 ## Not yet specified
 
