@@ -18,8 +18,10 @@ How (FR-G1 to FR-G4):
 3. Closing: from the nearest plan below (or above) the band, whole small
    ordinary occurrences are added (taken from a larger plan, so they are dated
    by the archetype's own rules, and only where gap rules allow) or dropped, or
-   swapped one for one, until the total (and row count) is in band. No drawn
-   amount is ever changed.
+   swapped one for one, until the total (and row count) is in band. When a
+   lumpy archetype (a whole project burst) leaves a gap the nearest plans
+   cannot bridge, the added occurrences come from plans with 2x, then 8x the
+   occurrences (`WIDER_POOLS`). No drawn amount is ever changed.
 
 Exits: the total or row count needs more occurrences than gap rules allow
 (every lever at its limit) -> 5 (`GapsImpossible`); the band, or `target_rows`
@@ -48,6 +50,7 @@ BISECT_STEPS = 40
 QTY_MAX = 1e6  # a quantity factor that puts every draw on the largest allowed quantity
 QTY_MIN = 1e-6  # ... and on the smallest
 MAX_CLOSING_STEPS = 100_000
+WIDER_POOLS = (2, 8)  # occurrence multiples of the pools tried when the nearest plans cannot close
 
 
 @dataclass(frozen=True)
@@ -443,6 +446,15 @@ def calibrate(ctx: EngineContext) -> list[Row]:
         if over is not None:
             attempts.append((over, under or []))
         closed = _close(ctx, plans, goal, attempts)
+        if closed is None and under is not None and over is not None:
+            # A lumpy archetype (a whole project burst) can leave a gap between the two
+            # nearest plans that their own small rows cannot bridge: add small ordinary
+            # occurrences from plans with more occurrences instead.
+            for factor in WIDER_POOLS:
+                wider = replace(found.under, occurrences=max(found.under.occurrences * factor, 1.0))
+                closed = _close(ctx, plans, goal, [(under, plans.rows(wider))])
+                if closed is not None:
+                    break
         if closed is not None:
             return closed
         if under is None:
