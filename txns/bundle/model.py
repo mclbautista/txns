@@ -7,7 +7,11 @@ Bundle files (all JSON, top level of the bundle folder):
 - catalog.json    {"items": {item_id: {storyline, category, class, archetype, params}}}
 - rate_cards.json {item_id: {"points": [{unit_price (int centavos), seller}],
                              "quantities": [{qty (int), weight (int)}]}}
-- text.json       {item_id: {"descriptive": [...], "terse": [...]}}
+- text.json       {item_id: {"descriptive": [...], "terse": [...],
+                             "vendor": [{"seller": seller id, "text": "Vendor - item"}]}}
+                  `vendor` (optional) holds the vendor-prefixed descriptive variants;
+                  each is used only on rows whose price point that seller sells (FR-H1).
+                  Gates on this text: `txns.bundle.text_rules`.
 - storylines.json {name: {description, ...}}
 - rules.json      {"archetypes": {name: {...}}, "tier_factors": {...}}
 - reference.json  ledger statistics (filled by later tickets)
@@ -47,6 +51,14 @@ class PricePoint:
 
 
 @dataclass(frozen=True)
+class VendorVariant:
+    """A vendor-prefixed descriptive variant ("Vendor - item") and the seller id it names."""
+
+    seller: str
+    text: str
+
+
+@dataclass(frozen=True)
 class QtyOption:
     qty: int
     weight: int
@@ -65,6 +77,12 @@ class Item:
     descriptive: tuple[str, ...]
     terse: tuple[str, ...]
     raw: Mapping[str, Any] = field(default_factory=dict)
+    vendor: tuple[VendorVariant, ...] = ()  # vendor-prefixed descriptive variants
+
+    @property
+    def variants(self) -> tuple[str, ...]:
+        """Every text string of the item: descriptive, vendor-prefixed, terse."""
+        return self.descriptive + tuple(v.text for v in self.vendor) + self.terse
 
     @property
     def round_figures_approved(self) -> bool:
@@ -176,6 +194,13 @@ def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) ->
             raise _bad(f"{where}: no text variants")
         descriptive = tuple(variants.get("descriptive") or ())
         terse = tuple(variants.get("terse") or ())
+        vendor_raw = variants.get("vendor") or []
+        if not isinstance(vendor_raw, list) or not all(
+            isinstance(v, dict) and isinstance(v.get("seller"), str) and isinstance(v.get("text"), str)
+            for v in vendor_raw
+        ):
+            raise _bad(f"{where}: vendor variants must be a list of {{seller, text}} tables")
+        vendor = tuple(VendorVariant(v["seller"], v["text"]) for v in vendor_raw)
         if not descriptive and not terse:
             raise _bad(f"{where}: no text variants")
         items[item_id] = Item(
@@ -190,6 +215,7 @@ def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) ->
             descriptive=descriptive,
             terse=terse,
             raw=MappingProxyType(entry),
+            vendor=vendor,
         )
     return Bundle(
         id=bundle_id,

@@ -48,8 +48,12 @@ def add_item(
     price_class: str = "retail",
     category: str = "Office Expenses",
     params: dict | None = None,
+    vendor: list[tuple[str, str]] = (),
 ) -> None:
-    """Add a catalog item (and its storyline if new) to parsed bundle files."""
+    """Add a catalog item (and its storyline if new) to parsed bundle files.
+
+    `vendor` holds vendor-prefixed variants as (seller id, "Vendor - item") pairs.
+    """
     files["storylines"].setdefault(storyline, {"description": f"test storyline {storyline}"})
     files["catalog"]["items"][item_id] = {
         "storyline": storyline,
@@ -63,6 +67,8 @@ def add_item(
         "quantities": [{"qty": q, "weight": w} for q, w in quantities],
     }
     files["text"][item_id] = {"descriptive": list(descriptive), "terse": list(terse)}
+    if vendor:
+        files["text"][item_id]["vendor"] = [{"seller": s, "text": t} for s, t in vendor]
 
 
 @dataclass
