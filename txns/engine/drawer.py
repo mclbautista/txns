@@ -47,6 +47,7 @@ def draw(ctx: EngineContext, occurrences: list[Occurrence]) -> list[Row]:
                 storyline=item.storyline,
                 price_point=point,
                 tags=occ.tags,
+                original_date=occ.original_date,
             )
         )
     return rows

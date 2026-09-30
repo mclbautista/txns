@@ -21,6 +21,7 @@
       "quantities": 1.0
     }
   },
+  "duplicate_group_rate": 0.02,
   "holiday_share": 0.01,
   "month_end_share": 0.108,
   "monthly_spread": {

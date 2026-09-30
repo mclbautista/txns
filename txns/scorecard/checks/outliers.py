@@ -7,11 +7,13 @@ IQR floored at log(2) so an item whose rows are nearly all one value does not
 flag its ordinary pack sizes. With the defaults that is "more than 8x the
 item's upper quartile, or under 1/8 of its lower quartile". The metric warns
 when more than `outlier_max_share` (default 2%) of the rows it looked at are
-outliers. Thresholds come from rules.json `scorecard`.
+outliers. Thresholds come from rules.json `scorecard`. A derived per-unit row
+(`bundle.packs.is_per_unit`) is measured at its pack price, pieces x unit price.
 """
 
 import math
 
+from txns.bundle.packs import is_per_unit, pack_pcs
 from txns.money import format_pesos
 from txns.scorecard.reference import percentile
 from txns.scorecard.registry import PASS, WARN, CheckResult, ScoreContext, check, listing, result
@@ -36,7 +38,11 @@ def outliers(ctx: ScoreContext) -> list[CheckResult]:
     k = float(ctx.rule("outlier_k", DEFAULT_K))
     max_share = float(ctx.rule("outlier_max_share", DEFAULT_MAX_SHARE))
     out = []
-    for measure, get in (("amount", lambda r: r.amount), ("unit_price", lambda r: r.unit_price)):
+    def pack_price(r):
+        item = ctx.item(r.item_id)
+        return r.unit_price * pack_pcs(item) if is_per_unit(item, r) else r.unit_price
+
+    for measure, get in (("amount", lambda r: r.amount), ("unit_price", pack_price)):
         looked = 0
         found = []
         for item_id, rows in ctx.by_item.items():

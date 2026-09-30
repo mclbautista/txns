@@ -14,7 +14,7 @@ from txns.scorecard import score_csv
 from txns.scorecard.registry import registered
 
 NEGATIVE_SAMPLE = Path(__file__).resolve().parent.parent / "inputs" / "negative-sample.csv"
-HARD = {"format", "plug_rows", "price_stability", "gap_rules"}
+HARD = {"format", "plug_rows", "price_stability", "gap_rules", "duplicates"}
 STATUSES = {"pass", "warn", "fail"}
 
 # The negative sample's items, cataloged with one rate-card price and one quantity each.
@@ -253,10 +253,12 @@ class NegativeSampleTest(unittest.TestCase):  # T31
         self.assertEqual(report.get("benford").status, "pass", "12 rows are too few to judge")
 
     def test_same_item_twice_on_one_day_fails_gap_rules(self):
+        # Two different amounts: a same-amount pair would be a batch-entry duplicate,
+        # judged by the duplicates check instead (ticket 11, tests/test_messiness.py).
         data = (
             "date_of_transaction,qty,unit_price,item/service\n"
             "2026-02-25,1,7500.00,Freelance Editor (day)\n"
-            "2026-02-25,1,7500.00,Freelance Editor (day)\n"
+            "2026-02-25,2,7500.00,Freelance Editor (day)\n"
             "2026-02-27,1,9950.00,LTO Tape Stock (ea)\n"
         )
         report = score_csv(data, self.bundle)

@@ -6,6 +6,10 @@
 - no old price on or after the date of the step that replaced it
   (`Item.retired_prices`).
 
+Derived per-unit rows (`bundle.packs.is_per_unit`: a pack price valid on the
+row's date over the pieces its text states) are the one allowed exception
+(FR-F5) and are left out of both rules.
+
 The span is the run's period, or for an external CSV the rows' first to last
 date. The value maps each failing item to its number of distinct prices.
 """
@@ -13,6 +17,7 @@ date. The value maps each failing item to its number of distinct prices.
 from datetime import date
 
 from txns.bundle.model import Item
+from txns.bundle.packs import is_per_unit
 from txns.money import format_pesos
 from txns.scorecard.registry import FAIL, PASS, CheckResult, ScoreContext, check, listing, result
 
@@ -38,6 +43,7 @@ def price_stability(ctx: ScoreContext) -> CheckResult:
     notes = []
     for item_id, rows in ctx.by_item.items():
         item = ctx.bundle.items[item_id]
+        rows = [r for r in rows if not is_per_unit(item, r)]
         distinct = len({r.unit_price for r in rows})
         allowed = allowed_prices(ctx, item)
         if distinct > allowed:

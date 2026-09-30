@@ -1,19 +1,19 @@
 """Terse-text share (FR-I4 (8), FR-H1): per category, the share of rows whose text
 is one of its item's terse variants, against reference.json `terse_share`.
 Ledger-relative, warn only (a beyond-2x deviation is reported as WARN).
-Rows whose text no catalog variant uses are left out."""
+Rows whose text no catalog variant uses are left out; a date tail is ignored."""
 
 from txns.scorecard import reference as ref
-from txns.scorecard.itemmap import TERSE, text_index
+from txns.scorecard.itemmap import TERSE, TextMatcher
 from txns.scorecard.registry import FAIL, PASS, WARN, CheckResult, ScoreContext, check, grade, listing, result, worst
 
 
 @check("terse_share", "anomaly")
 def terse_share(ctx: ScoreContext) -> CheckResult:
-    index = text_index(ctx.bundle)
+    matcher = TextMatcher(ctx.bundle)
     classed = []
     for r in ctx.rows:
-        item, match = ctx.item(r.item_id), index.get(r.text)
+        item, match = ctx.item(r.item_id), matcher.match(r.text)
         if item is not None and match is not None:
             classed.append((item.category, match.kind == TERSE))
     value = ref.terse_share(classed)
