@@ -1,0 +1,48 @@
+Account Transactions,,,,,,,,
+Fixture Post Studio,,,,,,,,
+For the period 1 January 2025 to 31 December 2025,,,,,,,,
+,,,,,,,,
+Date,Source,Description,Reference,Debit,Credit,Running Balance,Gross,Tax
+,,,,,,,,
+Bad Debts Expense,,,,,,,,
+10 Feb 2025,Receivable Credit Note,Clientele Pictures - Credit for subtitles,,"3,571.43",0.00,"3,571.43","3,571.43",0.00
+Total Bad Debts Expense,,,,"3,571.43",0.00,"3,571.43","3,571.43",0.00
+,,,,,,,,
+Conferences and Events - Travel,,,,,,,,
+06 May 2025,Spend Money,Skyway Travel - Festival airfare,,"38,500.00",0.00,"38,500.00","38,500.00",0.00
+30 May 2025,Receivable Invoice,Clientele Pictures - Airfare rebilled,,0.00,"38,500.00",0.00,"(38,500.00)",0.00
+Total Conferences and Events - Travel,,,,"38,500.00","38,500.00",0.00,0.00,0.00
+,,,,,,,,
+Delivery Fee,,,,,,,,
+10 Jan 2025,Spend Money,Swiftlane Couriers - Drive delivery to client,,192.00,0.00,192.00,192.00,0.00
+10 Jan 2025,Spend Money,Swiftlane Couriers - Drive delivery to client,,192.00,0.00,384.00,192.00,0.00
+03 Mar 2025,Spend Money,Swiftlane Couriers,,192.00,0.00,576.00,192.00,0.00
+17 Apr 2025,Spend Money,Swiftlane Couriers - Document pickup,,200.00,0.00,776.00,200.00,0.00
+Total Delivery Fee,,,,776.00,0.00,776.00,776.00,0.00
+,,,,,,,,
+Office Expense - Meals,,,,,,,,
+14 Feb 2025,Spend Money,Bean Harbor Cafe - Coffee for client review,,580.00,0.00,580.00,580.00,0.00
+07 Jul 2025,Spend Money,Bean Harbor Cafe,,360.00,0.00,940.00,360.00,0.00
+28 Nov 2025,Spend Money,Lutong Bahay Kitchen - Year-end lunch,,"3,200.00",0.00,"4,140.00","3,200.00",0.00
+Total Office Expense - Meals,,,,"4,140.00",0.00,"4,140.00","4,140.00",0.00
+,,,,,,,,
+Software Subscriptions,,,,,,,,
+01 Jan 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"2,891.00","2,891.00",0.00
+01 Feb 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"5,782.00","2,891.00",0.00
+01 Mar 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"8,673.00","2,891.00",0.00
+01 Apr 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"11,564.00","2,891.00",0.00
+01 May 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"14,455.00","2,891.00",0.00
+01 Jun 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"17,346.00","2,891.00",0.00
+01 Jul 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"20,237.00","2,891.00",0.00
+01 Aug 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"23,128.00","2,891.00",0.00
+01 Sep 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"26,019.00","2,891.00",0.00
+01 Oct 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"28,910.00","2,891.00",0.00
+01 Nov 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"31,801.00","2,891.00",0.00
+01 Dec 2025,Spend Money,Pixelforge Software - Editing suite subscription,,"2,891.00",0.00,"34,692.00","2,891.00",0.00
+Total Software Subscriptions,,,,"34,692.00",0.00,"34,692.00","34,692.00",0.00
+,,,,,,,,
+Storage Devices,,,,,,,,
+12 Aug 2025,Spend Money,Northgate Digital - 4 pcs 4TB desktop drive,,"28,900.00",0.00,"28,900.00","28,900.00",0.00
+Total Storage Devices,,,,"28,900.00",0.00,"28,900.00","28,900.00",0.00
+,,,,,,,,
+Total,,,,"110,579.43","38,500.00","72,079.43","72,079.43",0.00

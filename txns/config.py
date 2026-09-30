@@ -42,6 +42,7 @@ GENERATE_KEYS = (
     "multipliers",
 )
 AUTHOR_KEYS = ("model", "max_cost_usd", "ledgers_dir")
+AUTHOR_DEFAULTS = {"max_cost_usd": 5, "ledgers_dir": "inputs/ledgers"}  # `model` has no default
 # Keys that never enter the config hash. `seed` and `bundle` are hashed into
 # run identity on their own; `out` is excluded from identity entirely (FR-H7).
 UNHASHED_KEYS = ("out", "seed", "bundle")

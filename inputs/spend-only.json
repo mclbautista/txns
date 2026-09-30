@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "note": "Spend-only rule for `txns author` (FR-B3, ADR 0004). A ledger row is kept only when its source is in spend_sources, its account category is not in excluded_categories, and it has a debit and no credit (credit lines are never spend). Labour repairs stay: `Repairs and Maintenance-Labor` is deliberately not excluded. A source in neither list stops `author` (exit 2) until it is added to one of them. Reasons are for review only. subscription_categories marks the accounts whose rows count as subscriptions for the holiday share.",
+  "spend_sources": [
+    "Payable Invoice",
+    "Spend Money"
+  ],
+  "excluded_sources": {
+    "(blank)": "journal lines with no source, e.g. monthly depreciation",
+    "Payable Credit Note": "credit notes from suppliers",
+    "Receivable Credit Note": "credit notes on sold services",
+    "Receivable Invoice": "sold services and re-billed costs",
+    "Receive Money": "money received: refunds and returned cash"
+  },
+  "excluded_categories": {
+    "Bad Debts Expense": "write-offs of sold services, not a purchase",
+    "Consulting & Accounting": "pays people for their time (bookkeeping and consultancy retainers)",
+    "Less Accumulated Depreciation on Computer Software": "depreciation, not a purchase",
+    "Miscellaneous Expense": "staff cash advances and loan remittances, reversed by receipts",
+    "Office Expense - Utility/Labor": "pays utility staff by the day"
+  },
+  "subscription_categories": [
+    "Software Subscriptions"
+  ]
+}
