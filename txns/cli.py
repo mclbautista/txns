@@ -2,6 +2,7 @@
 
 Primary test seam: `main(argv, today=..., env=..., cwd=..., stdout=..., stderr=...)`
 runs a command in-process with an injected clock, environment and working folder.
+`author` also takes `transport=` (test seam 2): the LLM connection, a scripted fake in tests.
 
 Adding a command: create `txns/commands/<name>.py` with `add_arguments(parser)`
 and `run(args, rt) -> int`, then add it to COMMANDS below.
@@ -14,7 +15,7 @@ import os
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Mapping, Sequence, TextIO
+from typing import Any, Mapping, Sequence, TextIO
 
 from txns import __version__
 from txns.commands import Runtime
@@ -23,7 +24,7 @@ from txns.commands import generate as generate_cmd
 from txns.errors import ExitCode, TxnsError
 
 COMMANDS = {
-    "author": (author_cmd, "derive reference.json from the ledgers (drafting and promotion come later)"),
+    "author": (author_cmd, "read the ledgers, draft the catalog and item text (promotion comes later)"),
     "generate": (generate_cmd, "write a CSV and run.json from the latest bundle"),
 }
 
@@ -66,6 +67,7 @@ def main(
     cwd: Path | str | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
+    transport: Any = None,
 ) -> int:
     stdout = stdout if stdout is not None else sys.stdout
     stderr = stderr if stderr is not None else sys.stderr
@@ -75,6 +77,7 @@ def main(
         cwd=Path(cwd) if cwd is not None else Path.cwd(),
         stdout=stdout,
         stderr=stderr,
+        transport=transport,
     )
     parser = _parser()
     try:

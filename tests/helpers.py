@@ -7,6 +7,7 @@
     r = ws.run("generate", "--seed", "7")     # r.code, r.stdout, r.stderr
     r.csv_bytes, r.run_json, r.rows           # outputs of the last generate
     ws.install_author_inputs()                # committed author inputs + fixture ledgers and allowlist in ws/inputs
+    ws.llm                                    # the scripted LLM fake `author` talks to (tests/llm_fake.py)
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Callable
 
+from tests.llm_fake import ScriptedLLM
 from txns import versions
 from txns.bundle import store
 from txns.cli import main
@@ -119,6 +121,7 @@ class Workspace:
         self.cwd = Path(tmp.name)
         self._staging = 0
         self.write_config("")
+        self.llm = ScriptedLLM()  # the LLM connection every `author` run gets (scripted fake, no network)
 
     def install_bundle(
         self,
@@ -151,9 +154,13 @@ class Workspace:
         path.write_text(text, encoding="utf-8")
         return path
 
-    def run(self, *argv: str, today: date = DEFAULT_TODAY, env: dict[str, str] | None = None) -> Result:
+    def run(
+        self, *argv: str, today: date = DEFAULT_TODAY, env: dict[str, str] | None = None, transport: Any = None
+    ) -> Result:
+        """Run `txns` in-process; `author` talks to `transport`, by default `self.llm`."""
         out, err = io.StringIO(), io.StringIO()
-        code = main(list(argv), today=today, env=env if env is not None else {}, cwd=self.cwd, stdout=out, stderr=err)
+        code = main(list(argv), today=today, env=env if env is not None else {}, cwd=self.cwd, stdout=out, stderr=err,
+                    transport=transport if transport is not None else self.llm)
         result = Result(code, out.getvalue(), err.getvalue())
         # The CSV this run wrote is named on its "wrote ... .csv (" line.
         m = re.search(r"^wrote (.+\.csv) \(", result.stdout, re.MULTILINE)

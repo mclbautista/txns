@@ -1,19 +1,22 @@
-"""`txns author`: ledgers -> reference.json and the scrubbed payload (Flow 1, FR-B, FR-C1, FR-C2).
+"""`txns author`: ledgers -> reference.json, the scrubbed payload and LLM drafts (Flow 1, FR-B, FR-C).
 
 So far `author` checks the API key, reads the ledgers strictly, applies the
-spend-only rule, builds the scrubbed LLM payload and runs the leak check. It
-writes, in `.txns/author/` under the working folder (gitignored):
+spend-only rule, builds the scrubbed LLM payload, runs the leak check and drafts
+the catalog, item text and vocabulary through the LLM connection. It writes, in
+`.txns/author/` under the working folder (gitignored):
 
     reference.json   the FR-B4 statistics (goes into the bundle unchanged)
     ledgers.json     {"ledger_hashes": {file name: sha256}} for the bundle manifest
     payload.json     the scrubbed payload: exactly what the LLM will be sent (T37)
     name-map.json    real -> fake names; LOCAL ONLY, never sent, bundled or committed
+    drafts/<payload sha256>/<part>.json   valid drafts (`txns.drafting`), reused on re-runs
 
 A leak (a non-allowlisted ledger name surviving in the payload) exits 4 before
-any LLM call and leaves no payload.json. Drafting, the promotion gate and
-promotion come in later tickets; they must send only `payload.json`'s content
-(or objects checked with `privacy.find_in_object`). The API key is only checked
-for presence here and is never written anywhere.
+any LLM call and leaves no payload.json. Requests carry only extracts of the
+payload and earlier drafts, and each is leak-checked again before it is sent.
+A failed call exits 3; a response that fails its draft schema exits 4. Bundle
+assembly, the promotion gates and promotion come in a later ticket. The API key
+is only checked for presence here and is never written anywhere.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ import json
 import os
 from pathlib import Path
 
-from txns import ledger, privacy
+from txns import drafting, ledger, llm, privacy
 from txns.canonical import pretty_json
 from txns.commands import Runtime
 from txns.config import AUTHOR_DEFAULTS, load_config
@@ -71,7 +74,8 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
     _write(out / REFERENCE_FILE, pretty_json(derived.reference))
     _write(out / LEDGERS_FILE, pretty_json({"ledger_hashes": derived.ledger_hashes}))
 
-    payload = _scrubbed_payload(derived, rt, out)
+    payload_text, index = _scrubbed_payload(derived, rt, out)
+    payload = json.loads(payload_text)
 
     n = len(derived.ledger_hashes)
     rt.out(f"read {n} ledger{'s' if n != 1 else ''}: {derived.kept} spend rows kept, "
@@ -84,12 +88,37 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
     rt.out(f"wrote {TEMP_DIR.as_posix()}/{PAYLOAD_FILE} ({len(payload['categories'])} categories, "
            "aggregates and item-text patterns only)")
     rt.out(f"wrote {TEMP_DIR.as_posix()}/{NAME_MAP_FILE} (real-to-fake names: stays on this machine)")
-    rt.out("drafting and bundle promotion are not built yet; stopping after the payload")
+
+    result = drafting.draft_all(
+        payload_text,
+        index,
+        out,
+        connect=lambda: rt.transport if rt.transport is not None else llm.connect(settings, rt.env),
+        model=settings.get("model"),
+        warn=rt.warn,
+    )
+    _report_drafts(result, rt)
+    rt.out("bundle assembly and promotion are not built yet; stopping after the drafts")
     return ExitCode.OK
 
 
-def _scrubbed_payload(derived: ledger.Derived, rt: Runtime, out: Path) -> dict:
-    """Build the payload, scrub it, leak-check it (FR-C2, T37); exit 4 on a leak."""
+def _report_drafts(result: drafting.Result, rt: Runtime) -> None:
+    d = result.drafts
+    n_text = sum(len(v["descriptive"]) + len(v["vendor"]) + len(v["terse"]) for v in d.variants.values())
+    n_tails = len((d.vocabulary or {}).get("date_tails", []))
+    rt.out(f"drafts: {len(d.storylines)} storylines, {len(d.items)} catalog items, "
+           f"{n_text} text variants, {n_tails} date-tail formats")
+    rt.out(f"  {result.calls} LLM call{'s' if result.calls != 1 else ''} this run (${result.cost_usd:.4f}), "
+           f"{len(result.reused)} part{'s' if len(result.reused) != 1 else ''} reused from saved drafts")
+    served = sorted(set(d.served_models.values()))
+    rt.out(f"  served by: {', '.join(served) if served else '(none)'}")
+    rt.out(f"wrote {result.folder.relative_to(rt.cwd).as_posix()}/ ({len(d.served_models)} parts)")
+
+
+def _scrubbed_payload(derived: ledger.Derived, rt: Runtime, out: Path) -> tuple[str, privacy.NameIndex]:
+    """Build the payload, scrub it, leak-check it (FR-C2, T37); exit 4 on a leak.
+
+    Returns payload.json's text (drafting sends only extracts of it) and the name index."""
     allow = privacy.load_allowlist(rt.cwd)
     if not allow.found:
         rt.warn(f"{privacy.ALLOWLIST_PATH.as_posix()} not found; treating the brand allowlist as empty "
@@ -116,4 +145,4 @@ def _scrubbed_payload(derived: ledger.Derived, rt: Runtime, out: Path) -> dict:
     blocked = len(index.blocked)
     rt.out(f"brand allowlist: {len(allow.entries)} entries; {len(index.names) - blocked} ledger names kept, "
            f"{blocked} replaced by fabricated names; leak check passed")
-    return json.loads(text)
+    return text, index
