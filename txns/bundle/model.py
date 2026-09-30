@@ -16,7 +16,9 @@ Bundle files (all JSON, top level of the bundle folder):
                   each is used only on rows whose price point that seller sells (FR-H1).
                   Gates on this text: `txns.bundle.text_rules`.
 - storylines.json {name: {description, ...}}
-- rules.json      {"archetypes": {name: {...}}, "tier_factors": {...}}
+- rules.json      {"archetypes": {name: {...}}, "tier_factors": {...},
+                   "calendar": {...} (day shape, see txns.engine.calendar)}
+- holidays.json   Philippine holiday calendar for the bundle's years (txns.holidays)
 - reference.json  ledger statistics (filled by later tickets)
 
 Any other *.json file is loaded into `Bundle.data[<stem>]` untouched, so a new
@@ -35,6 +37,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from txns import holidays
 from txns.errors import BundleInvalid
 
 REQUIRED_FILES = (
@@ -45,6 +48,7 @@ REQUIRED_FILES = (
     "storylines",
     "rules",
     "reference",
+    "holidays",
 )
 PRICE_CLASSES = ("subscription", "retail", "big_ticket")
 
@@ -167,6 +171,7 @@ class Bundle:
     rules: Mapping[str, Any]
     reference: Mapping[str, Any]
     data: Mapping[str, Any]  # every JSON file by stem, raw
+    calendar: holidays.HolidayCalendar = field(default_factory=holidays.HolidayCalendar.empty)
 
     @property
     def label(self) -> str:
@@ -273,6 +278,10 @@ def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) ->
             goods=rate_card.goods,
             steps=rate_card.steps,
         )
+    try:
+        calendar = holidays.parse(data["holidays"])
+    except holidays.CalendarInvalid as exc:
+        raise _bad(str(exc)) from None
     return Bundle(
         id=bundle_id,
         path=folder,
@@ -283,4 +292,5 @@ def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) ->
         rules=MappingProxyType(data["rules"]),
         reference=MappingProxyType(data["reference"]),
         data=MappingProxyType(data),
+        calendar=calendar,
     )

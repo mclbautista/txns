@@ -1,0 +1,157 @@
+{
+  "format": 1,
+  "country": "PH",
+  "note": "Nationwide Philippine regular holidays and special (non-working) days, one table per year, each day citing the proclamation that declared it. Local (city or province) special days and special working days are left out. Islamic holidays (Eid'l Fitr, Eid'l Adha) are proclaimed separately each year once their dates are fixed; a year without them is still awaiting those proclamations. `author` copies the years a bundle needs into the bundle's holidays.json (FR-D1). Add a year when its proclamation is issued.",
+  "years": {
+    "2023": {
+      "proclamations": [
+        {"id": "Proclamation No. 42, s. 2022", "signed": "2022-08-22", "subject": "Regular holidays and special (non-working) days for 2023", "url": "https://elibrary.judiciary.gov.ph/thebookshelf/showdocs/7/95694"},
+        {"id": "Proclamation No. 90, s. 2022", "signed": "2022-11-11", "subject": "Amends Proclamation No. 42: moves Araw ng Kagitingan to 10 April and Bonifacio Day to 27 November, adds 2 January", "url": "https://elibrary.judiciary.gov.ph/thebookshelf/showdocs/2/96092"},
+        {"id": "Proclamation No. 167, s. 2023", "subject": "Friday 24 February 2023 a special (non-working) day for the EDSA anniversary, in lieu of 25 February", "url": "https://elibrary.judiciary.gov.ph/thebookshelf/showdocs/9/96342"},
+        {"id": "Proclamation No. 201, s. 2023", "subject": "Friday 21 April 2023 a regular holiday for Eid'l Fitr"},
+        {"id": "Proclamation No. 258, s. 2023", "signed": "2023-06-13", "subject": "Wednesday 28 June 2023 a regular holiday for Eid'l Adha", "url": "https://www.officialgazette.gov.ph/2023/06/13/proclamation-no-258-s-2023/"},
+        {"id": "Proclamation No. 359, s. 2023", "subject": "Monday 30 October 2023 a special (non-working) day for the barangay and SK elections"},
+        {"id": "Proclamation No. 425, s. 2023", "signed": "2023-12-12", "subject": "Tuesday 26 December 2023 a special (non-working) day"}
+      ],
+      "days": [
+        {"date": "2023-01-01", "name": "New Year's Day", "kind": "regular", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-01-02", "name": "Additional special day after New Year", "kind": "special", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-02-24", "name": "EDSA People Power Revolution Anniversary (observed)", "kind": "special", "source": "Proclamation No. 167, s. 2023"},
+        {"date": "2023-04-06", "name": "Maundy Thursday", "kind": "regular", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-04-07", "name": "Good Friday", "kind": "regular", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-04-08", "name": "Black Saturday", "kind": "special", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-04-10", "name": "Araw ng Kagitingan (observed)", "kind": "regular", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-04-21", "name": "Eid'l Fitr", "kind": "regular", "source": "Proclamation No. 201, s. 2023"},
+        {"date": "2023-05-01", "name": "Labor Day", "kind": "regular", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-06-12", "name": "Independence Day", "kind": "regular", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-06-28", "name": "Eid'l Adha", "kind": "regular", "source": "Proclamation No. 258, s. 2023"},
+        {"date": "2023-08-21", "name": "Ninoy Aquino Day", "kind": "special", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-08-28", "name": "National Heroes Day", "kind": "regular", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-10-30", "name": "Barangay and SK Elections", "kind": "special", "source": "Proclamation No. 359, s. 2023"},
+        {"date": "2023-11-01", "name": "All Saints' Day", "kind": "special", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-11-02", "name": "All Souls' Day", "kind": "special", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-11-27", "name": "Bonifacio Day (observed)", "kind": "regular", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-12-08", "name": "Feast of the Immaculate Conception of Mary", "kind": "special", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-12-25", "name": "Christmas Day", "kind": "regular", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-12-26", "name": "Additional special day after Christmas", "kind": "special", "source": "Proclamation No. 425, s. 2023"},
+        {"date": "2023-12-30", "name": "Rizal Day", "kind": "regular", "source": "Proclamation No. 90, s. 2022"},
+        {"date": "2023-12-31", "name": "Last Day of the Year", "kind": "special", "source": "Proclamation No. 90, s. 2022"}
+      ]
+    },
+    "2024": {
+      "proclamations": [
+        {"id": "Proclamation No. 368, s. 2023", "signed": "2023-10-11", "subject": "Regular holidays and special (non-working) days for 2024", "url": "https://pco.gov.ph/issuances/proclamation-no-368-declaring-the-regular-holidays-and-special-non-working-days-for-the-year-2024/"},
+        {"id": "Proclamation No. 514, s. 2024", "signed": "2024-04-04", "subject": "Wednesday 10 April 2024 a regular holiday for Eid'l Fitr"},
+        {"id": "Proclamation No. 579, s. 2024", "signed": "2024-06-04", "subject": "Monday 17 June 2024 a regular holiday for Eid'l Adha"},
+        {"id": "Proclamation No. 665, s. 2024", "signed": "2024-08-15", "subject": "Amends Proclamation No. 368: moves Ninoy Aquino Day from 21 to 23 August 2024", "url": "https://www.officialgazette.gov.ph/2024/08/15/proclamation-no-665-s-2024/"}
+      ],
+      "days": [
+        {"date": "2024-01-01", "name": "New Year's Day", "kind": "regular", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-02-10", "name": "Chinese New Year", "kind": "special", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-03-28", "name": "Maundy Thursday", "kind": "regular", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-03-29", "name": "Good Friday", "kind": "regular", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-03-30", "name": "Black Saturday", "kind": "special", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-04-09", "name": "Araw ng Kagitingan", "kind": "regular", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-04-10", "name": "Eid'l Fitr", "kind": "regular", "source": "Proclamation No. 514, s. 2024"},
+        {"date": "2024-05-01", "name": "Labor Day", "kind": "regular", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-06-12", "name": "Independence Day", "kind": "regular", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-06-17", "name": "Eid'l Adha", "kind": "regular", "source": "Proclamation No. 579, s. 2024"},
+        {"date": "2024-08-23", "name": "Ninoy Aquino Day (observed)", "kind": "special", "source": "Proclamation No. 665, s. 2024"},
+        {"date": "2024-08-26", "name": "National Heroes Day", "kind": "regular", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-11-01", "name": "All Saints' Day", "kind": "special", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-11-02", "name": "All Souls' Day", "kind": "special", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-11-30", "name": "Bonifacio Day", "kind": "regular", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-12-08", "name": "Feast of the Immaculate Conception of Mary", "kind": "special", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-12-24", "name": "Christmas Eve", "kind": "special", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-12-25", "name": "Christmas Day", "kind": "regular", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-12-30", "name": "Rizal Day", "kind": "regular", "source": "Proclamation No. 368, s. 2023"},
+        {"date": "2024-12-31", "name": "Last Day of the Year", "kind": "special", "source": "Proclamation No. 368, s. 2023"}
+      ]
+    },
+    "2025": {
+      "proclamations": [
+        {"id": "Proclamation No. 727, s. 2024", "signed": "2024-10-30", "subject": "Regular holidays and special (non-working) days for 2025", "url": "https://www.officialgazette.gov.ph/2024/10/30/proclamation-no-727-s-2024/"},
+        {"id": "Proclamation No. 839, s. 2025", "subject": "Tuesday 1 April 2025 a regular holiday for Eid'l Fitr"},
+        {"id": "Proclamation No. 878, s. 2025", "signed": "2025-05-06", "subject": "Monday 12 May 2025 a special (non-working) day for the national and local elections"},
+        {"id": "Proclamation No. 911, s. 2025", "signed": "2025-05-21", "subject": "Friday 6 June 2025 a regular holiday for Eid'l Adha"}
+      ],
+      "days": [
+        {"date": "2025-01-01", "name": "New Year's Day", "kind": "regular", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-01-29", "name": "Chinese New Year", "kind": "special", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-04-01", "name": "Eid'l Fitr", "kind": "regular", "source": "Proclamation No. 839, s. 2025"},
+        {"date": "2025-04-09", "name": "Araw ng Kagitingan", "kind": "regular", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-04-17", "name": "Maundy Thursday", "kind": "regular", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-04-18", "name": "Good Friday", "kind": "regular", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-04-19", "name": "Black Saturday", "kind": "special", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-05-01", "name": "Labor Day", "kind": "regular", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-05-12", "name": "National and Local Elections", "kind": "special", "source": "Proclamation No. 878, s. 2025"},
+        {"date": "2025-06-06", "name": "Eid'l Adha", "kind": "regular", "source": "Proclamation No. 911, s. 2025"},
+        {"date": "2025-06-12", "name": "Independence Day", "kind": "regular", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-08-21", "name": "Ninoy Aquino Day", "kind": "special", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-08-25", "name": "National Heroes Day", "kind": "regular", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-10-31", "name": "All Saints' Day Eve", "kind": "special", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-11-01", "name": "All Saints' Day", "kind": "special", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-11-30", "name": "Bonifacio Day", "kind": "regular", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-12-08", "name": "Feast of the Immaculate Conception of Mary", "kind": "special", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-12-24", "name": "Christmas Eve", "kind": "special", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-12-25", "name": "Christmas Day", "kind": "regular", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-12-30", "name": "Rizal Day", "kind": "regular", "source": "Proclamation No. 727, s. 2024"},
+        {"date": "2025-12-31", "name": "Last Day of the Year", "kind": "special", "source": "Proclamation No. 727, s. 2024"}
+      ]
+    },
+    "2026": {
+      "proclamations": [
+        {"id": "Proclamation No. 1006, s. 2025", "signed": "2025-09-03", "subject": "Regular holidays and special (non-working) days for 2026", "url": "https://pco.gov.ph/issuances/proclamation-no-1006-declaring-the-regular-holidays-and-special-non-working-days-for-the-year-2026/"},
+        {"id": "Proclamation No. 1189, s. 2026", "signed": "2026-03-12", "subject": "Friday 20 March 2026 a regular holiday for Eid'l Fitr"},
+        {"id": "Proclamation No. 1264, s. 2026", "signed": "2026-05-21", "subject": "Wednesday 27 May 2026 a regular holiday for Eid'l Adha", "url": "https://www.officialgazette.gov.ph/2026/05/21/proclamation-no-1264-s-2026/"}
+      ],
+      "days": [
+        {"date": "2026-01-01", "name": "New Year's Day", "kind": "regular", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-02-17", "name": "Chinese New Year", "kind": "special", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-03-20", "name": "Eid'l Fitr", "kind": "regular", "source": "Proclamation No. 1189, s. 2026"},
+        {"date": "2026-04-02", "name": "Maundy Thursday", "kind": "regular", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-04-03", "name": "Good Friday", "kind": "regular", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-04-04", "name": "Black Saturday", "kind": "special", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-04-09", "name": "Araw ng Kagitingan", "kind": "regular", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-05-01", "name": "Labor Day", "kind": "regular", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-05-27", "name": "Eid'l Adha", "kind": "regular", "source": "Proclamation No. 1264, s. 2026"},
+        {"date": "2026-06-12", "name": "Independence Day", "kind": "regular", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-08-21", "name": "Ninoy Aquino Day", "kind": "special", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-08-31", "name": "National Heroes Day", "kind": "regular", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-11-01", "name": "All Saints' Day", "kind": "special", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-11-02", "name": "All Souls' Day", "kind": "special", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-11-30", "name": "Bonifacio Day", "kind": "regular", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-12-08", "name": "Feast of the Immaculate Conception of Mary", "kind": "special", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-12-24", "name": "Christmas Eve", "kind": "special", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-12-25", "name": "Christmas Day", "kind": "regular", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-12-30", "name": "Rizal Day", "kind": "regular", "source": "Proclamation No. 1006, s. 2025"},
+        {"date": "2026-12-31", "name": "Last Day of the Year", "kind": "special", "source": "Proclamation No. 1006, s. 2025"}
+      ]
+    },
+    "2027": {
+      "proclamations": [
+        {"id": "Proclamation No. 1427, s. 2026", "signed": "2026-09-08", "subject": "Regular holidays and special (non-working) days for 2027 (Eid'l Fitr and Eid'l Adha still to be proclaimed)", "url": "https://pco.gov.ph/issuances/proclamation-no-1427-declaring-the-regular-holidays-and-special-non-working-days-for-the-year-2027/"}
+      ],
+      "days": [
+        {"date": "2027-01-01", "name": "New Year's Day", "kind": "regular", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-02-06", "name": "Chinese New Year", "kind": "special", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-03-25", "name": "Maundy Thursday", "kind": "regular", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-03-26", "name": "Good Friday", "kind": "regular", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-03-27", "name": "Black Saturday", "kind": "special", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-04-09", "name": "Araw ng Kagitingan", "kind": "regular", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-05-01", "name": "Labor Day", "kind": "regular", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-06-12", "name": "Independence Day", "kind": "regular", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-08-21", "name": "Ninoy Aquino Day", "kind": "special", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-08-30", "name": "National Heroes Day", "kind": "regular", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-11-01", "name": "All Saints' Day", "kind": "special", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-11-02", "name": "All Souls' Day", "kind": "special", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-11-30", "name": "Bonifacio Day", "kind": "regular", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-12-08", "name": "Feast of the Immaculate Conception of Mary", "kind": "special", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-12-24", "name": "Christmas Eve", "kind": "special", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-12-25", "name": "Christmas Day", "kind": "regular", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-12-30", "name": "Rizal Day", "kind": "regular", "source": "Proclamation No. 1427, s. 2026"},
+        {"date": "2027-12-31", "name": "Last Day of the Year", "kind": "special", "source": "Proclamation No. 1427, s. 2026"}
+      ]
+    }
+  }
+}
