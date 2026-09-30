@@ -224,6 +224,7 @@ class TextGateTest(unittest.TestCase):  # FR-D2 gates 4-6, FR-C3
     def test_big_ticket_items_have_no_terse_variants(self):
         def big(files):
             files["catalog"]["items"]["errands.courier"]["class"] = "big_ticket"
+            files["rate_cards"]["errands.courier"]["points"] = files["rate_cards"]["errands.courier"]["points"][:1]  # big-ticket: one point
 
         self.assertRejected(big, "item `errands.courier`: big-ticket items have no terse variants")
 
