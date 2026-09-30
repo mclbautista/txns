@@ -11,7 +11,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest import mock
 
-from tests.helpers import Workspace, add_item, load_fixture_files
+from tests.helpers import FIXTURE_CONFIG, Workspace, add_item, load_fixture_files
 
 CSV_NAME = re.compile(r"^txns-2026Q3-[0-9a-f]{6}\.csv$")
 
@@ -57,9 +57,9 @@ class DeterminismTest(unittest.TestCase):
         variants = [
             'start = "2026-07-02"\nend = "2026-09-30"\n',
             'start = "2026-07-01"\nend = "2026-09-29"\n',
-            "target = 4000001\n",
-            "band_pct = 3\n",
-            "target_rows = 900\n",
+            "target = 2\n",
+            "band_pct = 2_000_000_000_000\n",
+            "target_rows = 100\n",
             'tier = "high"\n',
             "tolerance_pct = 30\n",
             "[multipliers.class]\nretail = 1.5\n",
@@ -84,13 +84,18 @@ class DeterminismTest(unittest.TestCase):
     def test_committed_txns_toml_holds_the_defaults(self):
         base = self.ws.run("generate", "--seed", "42").run_json["run_id"]
         repo_config = Path(__file__).resolve().parent.parent / "txns.toml"
-        self.ws.write_config(repo_config.read_text(encoding="utf-8"))
+        text = repo_config.read_text(encoding="utf-8")
+        # Only the ₱4M target and its band are swapped for the fixture's (FIXTURE_CONFIG).
+        for key, value in FIXTURE_CONFIG.items():
+            text, n = re.subn(rf"^{key} = \S+", f"{key} = {value}", text, flags=re.MULTILINE)
+            self.assertEqual(n, 1, key)
+        self.ws.write_config(text)
         self.assertEqual(self.ws.run("generate", "--seed", "42").run_json["run_id"], base)
 
     def test_explicit_values_equal_to_defaults_keep_the_run_id(self):
         base = self.ws.run("generate", "--seed", "42").run_json["run_id"]
         self.ws.write_config(
-            'bundle = "latest"\nstart = "auto"\nend = "auto"\ntarget = 4_000_000\nband_pct = 2\n'
+            'bundle = "latest"\nstart = "auto"\nend = "auto"\ntarget = 1\nband_pct = 1e12\n'
             'tier = "mid"\ntolerance_pct = 25\nseed = ""\n[multipliers.class]\nretail = 1\n'
         )
         self.assertEqual(self.ws.run("generate", "--seed", "42").run_json["run_id"], base)
@@ -193,7 +198,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_every_generate_key_is_recorded_in_run_json(self):
         self.ws.write_config(
-            'target = 5000000\nband_pct = 3\ntarget_rows = 900\ntier = "high"\ntolerance_pct = 30\n'
+            'target = 50000\nband_pct = 3\ntarget_rows = 150\ntier = "high"\ntolerance_pct = 30\n'
             'out = "runs"\n[multipliers.class]\nbig_ticket = 2.0\n[multipliers.storyline]\nerrands = 0.5\n'
             '[author]\nmodel = "vendor/some-model"\nmax_cost_usd = 5\nledgers_dir = "inputs/ledgers"\n'
         )
@@ -202,7 +207,7 @@ class ConfigTest(unittest.TestCase):
         c = r.run_json["config"]
         self.assertEqual(
             {k: c[k] for k in ("target", "band_pct", "target_rows", "tier", "tolerance_pct", "out", "seed")},
-            {"target": 5000000, "band_pct": 3, "target_rows": 900, "tier": "high", "tolerance_pct": 30, "out": "runs", "seed": 9},
+            {"target": 50000, "band_pct": 3, "target_rows": 150, "tier": "high", "tolerance_pct": 30, "out": "runs", "seed": 9},
         )
         self.assertEqual(c["multipliers"]["class"], {"big_ticket": 2.0, "retail": 1.0, "subscription": 1.0})
         self.assertEqual(c["multipliers"]["storyline"], {"errands": 0.5, "office_pantry": 1.0})

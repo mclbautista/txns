@@ -3,7 +3,7 @@
     ws = Workspace(self)                      # temp cwd, removed after the test
     ws.install_bundle()                       # promote tests/fixtures/bundle into ws/bundles
     ws.install_bundle(mutate=fn)              # fn(files) edits the parsed JSON files first
-    ws.write_config('target = 4000000\n')     # ws/txns.toml
+    ws.write_config('tier = "high"\n')        # ws/txns.toml, on top of FIXTURE_CONFIG
     r = ws.run("generate", "--seed", "7")     # r.code, r.stdout, r.stderr
     r.csv_bytes, r.run_json, r.rows           # outputs of the last generate
 """
@@ -29,6 +29,13 @@ from txns.cli import main
 
 FIXTURE_BUNDLE = Path(__file__).parent / "fixtures" / "bundle"
 DEFAULT_TODAY = date(2026, 10, 5)  # auto period = 2026-07-01 .. 2026-09-30
+
+# The fixture bundle spends about ₱25k a quarter, far below the ₱4M default
+# target, which it cannot reach (exit 5). Tests that are not about calibration
+# run with a band every test-sized plan already meets (₱1 to about ₱10 billion),
+# so calibration keeps the plan as drawn. Every Workspace starts with this as its
+# txns.toml, and `write_config` puts these keys first unless the text sets them.
+FIXTURE_CONFIG = {"target": "1", "band_pct": "1_000_000_000_000"}
 
 
 def load_fixture_files(src: Path = FIXTURE_BUNDLE) -> dict[str, Any]:
@@ -106,6 +113,7 @@ class Workspace:
         self.test.addCleanup(tmp.cleanup)
         self.cwd = Path(tmp.name)
         self._staging = 0
+        self.write_config("")
 
     def install_bundle(
         self,
@@ -129,7 +137,11 @@ class Workspace:
             (staging / f"{stem}.json").write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return store.promote(staging, self.cwd / "bundles", label).name
 
-    def write_config(self, text: str, name: str = "txns.toml") -> Path:
+    def write_config(self, text: str, name: str = "txns.toml", *, fixture_defaults: bool = True) -> Path:
+        """Write a config file; FIXTURE_CONFIG keys the text does not set go first."""
+        if fixture_defaults:
+            given = set(re.findall(r"^\s*([A-Za-z_]+)\s*=", text, re.MULTILINE))
+            text = "".join(f"{k} = {v}\n" for k, v in FIXTURE_CONFIG.items() if k not in given) + text
         path = self.cwd / name
         path.write_text(text, encoding="utf-8")
         return path

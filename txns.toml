@@ -6,12 +6,15 @@ start = "auto"           # auto = latest full calendar quarter before today
 end = "auto"             # or an inclusive YYYY-MM-DD date
 target = 4_000_000       # pesos
 band_pct = 2             # total lands in [target, target * (1 + band_pct/100)]
-# target_rows = 900      # optional
-tier = "mid"             # independent | mid | high
+# target_rows = 900      # optional; rows land in [target_rows, target_rows * (1 + band_pct/100)]
+tier = "mid"             # independent | mid | high: scales occurrences and quantities, never prices
 tolerance_pct = 25       # scorecard pass band; warn band is double
 seed = ""                # blank = draw a seed and record it in run.json
 out = "out"              # not part of run identity
 
+# Multipliers shape the plan before calibration; the total still lands in band
+# and no unit price moves. Subscriptions grow by seats, retail by quantity and
+# number of orders, big-ticket by scope.
 [multipliers.class]      # all default 1.0
 # subscription = 1.0
 # retail = 1.0
