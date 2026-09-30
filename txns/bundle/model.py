@@ -51,6 +51,9 @@ REQUIRED_FILES = (
     "holidays",
 )
 PRICE_CLASSES = ("subscription", "retail", "big_ticket")
+# Minimum days between an item's rows when neither the item's params nor
+# rules.json `archetypes.<name>.min_gap_days` set one (FR-E5); other archetypes 1.
+DEFAULT_MIN_GAP_DAYS = {"fixed_day_subscription": 25, "periodic_top_up": 7}
 
 
 @dataclass(frozen=True)
@@ -191,11 +194,13 @@ class Bundle:
     def gap_rules(self, item: Item) -> tuple[int, int]:
         """(max rows per day, minimum gap in days) for an item (FR-E5).
 
-        Per-item `params` override the archetype's rules; defaults 1 and 1.
+        Per-item `params` override the archetype's rules; defaults 1 row a day
+        and `DEFAULT_MIN_GAP_DAYS` (subscription 25, top-up 7, others 1).
         """
         rules = self.archetype_rules(item.archetype)
         max_per_day = item.params.get("max_per_day", rules.get("max_per_day", 1))
-        min_gap = item.params.get("min_gap_days", rules.get("min_gap_days", 1))
+        default_gap = DEFAULT_MIN_GAP_DAYS.get(item.archetype, 1)
+        min_gap = item.params.get("min_gap_days", rules.get("min_gap_days", default_gap))
         return int(max_per_day), int(min_gap)
 
     def items_in(self, storyline: str) -> list[Item]:
