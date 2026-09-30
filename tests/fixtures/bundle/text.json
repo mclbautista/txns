@@ -1,0 +1,56 @@
+{
+  "pantry.coffee": {
+    "descriptive": [
+      "Brewed coffee for client review session",
+      "Iced coffee for editing team"
+    ],
+    "terse": [
+      "Coffee"
+    ]
+  },
+  "pantry.water": {
+    "descriptive": [
+      "Purified water refill, 5 gallons",
+      "Water refill for office dispenser"
+    ],
+    "terse": [
+      "Water refill"
+    ]
+  },
+  "pantry.snacks": {
+    "descriptive": [
+      "Snacks for overtime crew",
+      "Bread and biscuits for pantry"
+    ],
+    "terse": [
+      "Snacks"
+    ]
+  },
+  "errands.courier": {
+    "descriptive": [
+      "Courier delivery of hard drive to client",
+      "Same-day courier, drive return"
+    ],
+    "terse": [
+      "Courier"
+    ]
+  },
+  "errands.parking": {
+    "descriptive": [
+      "Parking fee at client office",
+      "Parking, post-house meeting"
+    ],
+    "terse": [
+      "Parking"
+    ]
+  },
+  "errands.mobile_load": {
+    "descriptive": [
+      "Prepaid mobile load for production phone",
+      "Mobile load, field coordinator"
+    ],
+    "terse": [
+      "Mobile load"
+    ]
+  }
+}
