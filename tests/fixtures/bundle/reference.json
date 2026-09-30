@@ -28,5 +28,12 @@
     "p50": 16500,
     "p75": 33000,
     "p90": 45000
+  },
+  "terse_share": {
+    "Delivery and Freight": 0.3,
+    "Meals and Entertainment": 0.35,
+    "Office Expenses": 0.4,
+    "Telephone and Internet": 0.25,
+    "Transportation": 0.45
   }
 }

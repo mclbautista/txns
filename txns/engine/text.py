@@ -1,24 +1,78 @@
 """Item text (FR-H1): pick a variant for each row after its price point is chosen.
 
-Walking skeleton: uniform over the item's descriptive + terse variants.
-Ticket 10 adds terse share, seller-matched vendor prefixes, big-ticket rules.
+Per item, a share of its rows is terse: the terse share of the item's category
+from reference.json `terse_share` (else rules.json `text.default_terse_share`,
+else DEFAULT_TERSE_SHARE). Items with no terse variants and big-ticket items
+are never terse. The count is rounded stochastically per item and the terse
+rows are picked at random among the item's rows, so the share holds even for
+small items without being exact across seeds.
+
+A descriptive row draws uniformly from the item's plain descriptive variants
+plus the vendor-prefixed variants whose seller sells the row's price point, so
+a vendor name never contradicts the price. Terse variants are unattributed.
+
+Every draw uses the item's own `text` stream, so other items and storylines
+never change an item's text (T5).
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 
+from txns.bundle.model import Item
 from txns.engine.context import EngineContext
 from txns.engine.rows import Row
 
+DEFAULT_TERSE_SHARE = 0.3
+
+
+def terse_share(ctx: EngineContext, item: Item) -> float:
+    """The share of this item's rows that should be terse (0 when it may not be terse)."""
+    if not item.terse or item.price_class == "big_ticket":
+        return 0.0
+    if not item.descriptive and not item.vendor:
+        return 1.0
+    shares = ctx.bundle.reference.get("terse_share") or {}
+    share = shares.get(item.category)
+    if share is None:
+        share = ctx.bundle.rules.get("text", {}).get("default_terse_share", DEFAULT_TERSE_SHARE)
+    return min(1.0, max(0.0, float(share)))
+
+
+def seller_of(item: Item, row: Row) -> str | None:
+    """The seller of the row's price point (None when the row has no point)."""
+    if row.price_point is None or not 0 <= row.price_point < len(item.price_points):
+        return None
+    return item.price_points[row.price_point].seller
+
+
+def descriptive_choices(item: Item, seller: str | None) -> tuple[str, ...]:
+    """Plain descriptive variants plus those vendor-prefixed by this seller."""
+    return item.descriptive + tuple(v.text for v in item.vendor if seller is not None and v.seller == seller)
+
 
 def apply(ctx: EngineContext, rows: list[Row]) -> list[Row]:
-    out: list[Row] = []
-    streams = {}
-    for row in rows:
-        if row.item_id not in streams:
-            streams[row.item_id] = ctx.item_stream(row.item_id, "text")
-        item = ctx.bundle.items[row.item_id]
-        variants = item.descriptive + item.terse
-        out.append(replace(row, text=streams[row.item_id].choice(variants)))
+    positions: dict[str, list[int]] = {}
+    for i, row in enumerate(rows):
+        positions.setdefault(row.item_id, []).append(i)
+    out = list(rows)
+    for item_id in sorted(positions):
+        item = ctx.bundle.items[item_id]
+        stream = ctx.item_stream(item_id, "text")
+        idx = positions[item_id]
+        expected = terse_share(ctx, item) * len(idx)
+        whole = math.floor(expected)
+        k = whole + (1 if stream.chance(expected - whole) else 0)
+        order = list(range(len(idx)))
+        stream.shuffle(order)
+        terse_rows = set(order[:k])
+        for n, i in enumerate(idx):
+            row = rows[i]
+            if n in terse_rows:
+                variants = item.terse
+            else:
+                # The loader guarantees plain descriptive or terse variants exist.
+                variants = descriptive_choices(item, seller_of(item, row)) or item.terse
+            out[i] = replace(row, text=stream.choice(variants))
     return out
