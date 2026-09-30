@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PROTOTYPE (throwaway): txns config and CLI shape</title>
+<style>
+:root{--ac:#0b6e4f;--bg:#faf9f6;--ink:#1c1c1a;--mut:#6b6a63;--line:#dcd9cf}
+*{box-sizing:border-box}body{font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--ink);margin:0;padding:24px;max-width:1100px;margin:auto}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:24px 0 8px}
+.warn{background:#fff3cd;border:1px solid #e6d28a;padding:8px 12px;border-radius:6px;font-size:13px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.panel{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:3px 6px;text-align:left;border-bottom:1px solid #eee;vertical-align:top}
+td.k{color:var(--mut);white-space:nowrap}
+input,select{font:inherit;font-size:13px;padding:2px 4px;width:150px}
+button{font:inherit;font-size:13px;border:1px solid var(--ac);background:#fff;color:var(--ac);border-radius:6px;padding:5px 10px;cursor:pointer;margin:2px}
+button.p{background:var(--ac);color:#fff}button:disabled{opacity:.4;cursor:default}
+pre{background:#161615;color:#e8e6dc;padding:12px;border-radius:8px;font-size:12.5px;max-height:420px;overflow:auto;white-space:pre-wrap;margin:0}
+.tabs button{border-radius:6px 6px 0 0;margin:0 2px 0 0}.tabs button.on{background:var(--ac);color:#fff}
+.step{display:block;width:100%;text-align:left;margin:4px 0}.step.done{opacity:.5}
+.chg{background:#dff3e8}.mut{color:var(--mut);font-size:13px}
+</style></head><body>
+<h1>PROTOTYPE, throwaway: what does <code>txns</code> look like to run every quarter?</h1>
+<p class="mut"><b>Question (ticket 08):</b> given the decisions in tickets 03 to 06 (separate <code>author</code> and <code>generate</code>, bundle folders, <code>run.json</code>, target and band as config values, latest full quarter as default span), is one small config file plus two commands enough to make a quarter take 30 seconds, run unattended, and fail sensibly? Nothing here writes files; the CLI is simulated by the pure module in the script. Assumption stated: the sizes (about ₱4,450 per row) and the failure triggers are invented to make the cases visible.</p>
+<div class="warn">Proposed commands: <code>txns author [--corrections FILE] [--label NAME]</code> · <code>txns approve [BUNDLE]</code> · <code>txns generate [--config txns.toml] [--seed N] [--bundle LABEL-HASH]</code>. Config is one TOML file; everything except <code>out</code> and <code>log</code> is hashed into run identity.</div>
+
+<div class="grid">
+<div><h2>Config (txns.toml)</h2><div class="panel" id="cfg"></div>
+<h2>World (simulated)</h2><div class="panel" id="world"></div></div>
+<div><h2>State</h2><div class="panel" id="state"></div></div></div>
+
+<h2>Free play</h2>
+<div class="panel" id="free"></div>
+
+<h2>Terminal</h2><pre id="term"></pre>
+
+<h2>Guided walkthroughs</h2>
+<div class="tabs" id="tabs"></div><div class="panel" id="walk"></div>
+
+<script>
+/* ===== pure module: liftable. No DOM. ===== */
+const Txns=(()=>{
+ const hash=s=>{let h=2166136261;for(const c of s){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return (h>>>0).toString(16).padStart(8,'0')};
+ const money=n=>'₱'+n.toLocaleString('en-US');
+ const init=()=>({today:'2026-10-05',
+  cfg:{bundle:'latest',start:'auto',end:'auto',target:4000000,band_pct:2,target_rows:'',tier:'mid',tolerance_pct:25,seed:'',out:'out/'},
+  bundles:[],runs:[],seedCounter:7000,world:{llm:'up',validation:'pass',plug:'no',ledgers:'present'},out:[],changed:[]});
+ // latest full quarter before `today`
+ const quarter=today=>{const [y,m]=today.split('-').map(Number);let q=Math.floor((m-1)/3);let yy=y;q-=1;if(q<0){q=3;yy--}
+  const s=[ '01-01','04-01','07-01','10-01'][q],e=['03-31','06-30','09-30','12-31'][q];return {label:yy+'Q'+(q+1),start:yy+'-'+s,end:yy+'-'+e}};
+ const cfgHash=(c,per)=>hash(JSON.stringify({...c,start:per.start,end:per.end,out:0,seed:0,bundle:0}));
+ const say=(s,...l)=>({...s,out:[...s.out,...l]});
+ const ver=1;
+ function reduce(s,a){
+  s={...s,changed:[]};
+  switch(a.t){
+  case 'set':{s={...s,cfg:{...s.cfg,[a.k]:a.v},changed:['cfg.'+a.k]};return s}
+  case 'world':return {...s,world:{...s.world,[a.k]:a.v},changed:['world.'+a.k]};
+  case 'nextQuarter':{const [y,m]=s.today.split('-').map(Number);let mm=m+3,yy=y;if(mm>12){mm-=12;yy++}
+    const t=yy+'-'+String(mm).padStart(2,'0')+'-05';return say({...s,today:t,changed:['today']},`# calendar moves on to ${t}; txns.toml untouched`)}
+  case 'author':{
+    let o=[`$ txns author${a.corr?' --corrections corrections/'+a.corr+'.csv':''}`];
+    if(s.world.ledgers!=='present'){o.push('error: ledger exports not found (needed for reference.json). No bundle written. exit 2');return say(s,...o)}
+    if(s.world.llm!=='up'){o.push('author: drafting catalog... LLM unreachable (timeout after 3 tries)','author: temp folder discarded; current bundle '+(s.bundles.length?s.bundles[s.bundles.length-1].id:'(none)')+' untouched. exit 3');return say(s,...o)}
+    o.push('author: drafting catalog, description variants, vocabulary... ok');
+    if(a.corr)o.push('author: applied corrections/'+a.corr+'.csv to rules (parameters and rate-card points only)');
+    o.push('author: validating temp bundle...');
+    if(s.world.validation!=='pass'){o.push('author: FAIL validation (gap rules cannot hold for item "Petty fuel")','author: temp folder discarded; current bundle untouched. exit 4');return say(s,...o)}
+    const n=s.bundles.length+1,h=hash('b'+n+(a.corr||'')+s.today),label=a.corr?'v'+n+'-fixes':'v'+n;
+    const b={label,hash:h,id:label+'-'+h.slice(0,6),reviewed:false,from:s.today};
+    o.push(`author: promoted bundles/${b.id}/ (reviewed: false)`,'exit 0');
+    return say({...s,bundles:[...s.bundles,b],changed:['bundles']},...o)}
+  case 'approve':{
+    if(!s.bundles.length)return say(s,'$ txns approve','error: no bundles. exit 2');
+    const bs=s.bundles.map((b,i)=>i===s.bundles.length-1?{...b,reviewed:true}:b);
+    return say({...s,bundles:bs,changed:['bundles']},'$ txns approve',`approved ${bs[bs.length-1].id}. exit 0`)}
+  case 'generate':{
+    const c=s.cfg;let o=['$ txns generate'+(c.seed!==''?' --seed '+c.seed:'')+(c.bundle!=='latest'?' --bundle '+c.bundle:'')];
+    let b=c.bundle==='latest'?s.bundles[s.bundles.length-1]:s.bundles.find(x=>x.id===c.bundle);
+    if(!b){o.push(c.bundle==='latest'?'error: no promoted bundle. Run `txns author` first. exit 2':'error: bundle '+c.bundle+' not found. exit 2');return say(s,...o)}
+    if(b.reviewed===false)o.push(`warn: bundle ${b.id} is unreviewed (run \`txns approve\` when satisfied)`);
+    const per=c.start==='auto'?quarter(s.today):{label:c.start+'..'+c.end,start:c.start,end:c.end};
+    o.push(`period ${per.start} to ${per.end}${c.start==='auto'?' (latest full quarter)':''}`);
+    let seed=c.seed,drawn=false,sc=s.seedCounter;
+    if(seed===''){sc+=7919;seed=String(sc);drawn=true}
+    o.push(`seed ${seed}${drawn?' (drawn, recorded in run.json)':''}`);
+    const mult={independent:.5,mid:1,high:2.5}[c.tier];
+    const target=Number(c.target),rows=Math.round(target/4450);
+    const s2={...s,seedCounter:sc};
+    if(c.tier==='high'&&target>=12000000){o.push(`fail: at tier high, target ${money(target)} needs ~${rows} rows in ${per.label}; item min-gap rules cannot hold (Subscription stack, gap>=25d). Refusing to chunk. No CSV. exit 5`);return say(s2,...o)}
+    if(Number(c.band_pct)<0.5){o.push(`fail: calibration cannot land in ${money(target)}..+${c.band_pct}% with whole small occurrences (smallest closing step ~0.5%). No CSV. exit 6`);return say(s2,...o)}
+    if(c.target_rows!==''&&Math.abs(Number(c.target_rows)-rows)/rows>.15){o.push(`fail: target_rows=${c.target_rows} and target=${money(target)} cannot both be met (would need ~${rows} rows). No CSV. exit 6`);return say(s2,...o)}
+    const total=Math.round(target*(1+Number(c.band_pct)/100*((parseInt(hash(seed+b.hash).slice(0,4),16)%100)/100)));
+    const id=hash(seed+'|'+b.hash+'|'+cfgHash(c,per));
+    const file=`${c.out}txns-${per.label}-${id.slice(0,6)}.csv`;
+    const same=s.runs.find(r=>r.id===id);
+    o.push(`generate: ${rows} rows, total ${money(total)} (band ${money(target)}..${money(Math.round(target*(1+c.band_pct/100)))})`);
+    o.push(`scorecard: 7 anomaly checks, ±${c.tolerance_pct}% tolerance`);
+    let code=0;
+    if(s.world.plug==='yes'){o.push('scorecard: FAIL plug rows (round amount on non-big-ticket item)','wrote '+file+' anyway; exit 1');code=1}
+    else{o.push('scorecard: 6 pass, 1 warn (Benford, report only)','wrote '+file+' and '+file.replace('.csv','.run.json'),'exit 0')}
+    if(same)o.push(`note: identity ${id} matches run #${same.n}: output is byte-identical to that file`);
+    const run={n:s.runs.length+1,id,seed,bundle:b.id,period:per.label,rows,total,file,code,unreviewed:!b.reviewed};
+    return say({...s2,runs:[...s.runs,run],changed:['runs']},...o)}
+  }return s}
+ return {init,reduce,money,quarter};
+})();
+
+/* ===== thin shell ===== */
+const $=id=>document.getElementById(id);let S=Txns.init();
+const act=a=>{S=Txns.reduce(S,a);render()};
+const F=[['bundle','latest, or label-hash'],['start','auto or YYYY-MM-DD'],['end','auto or YYYY-MM-DD'],['target','₱, integer'],['band_pct','% above target'],['target_rows','optional'],['tier','independent|mid|high'],['tolerance_pct','scorecard'],['seed','blank = draw + record'],['out','not hashed']];
+function render(){
+ $('cfg').innerHTML='<table>'+F.map(([k,h])=>`<tr class="${S.changed.includes('cfg.'+k)?'chg':''}"><td class=k>${k}</td><td><input value="${S.cfg[k]}" onchange="act({t:'set',k:'${k}',v:this.value})"></td><td class=mut>${h}</td></tr>`).join('')+'</table>';
+ const w=S.world,tg=(k,a,b,la,lb)=>`<tr><td class=k>${k}</td><td><button onclick="act({t:'world',k:'${k}',v:'${w[k]===a?b:a}'})">${w[k]===a?la:lb}</button></td></tr>`;
+ $('world').innerHTML='<table>'+tg('llm','up','down','LLM: reachable (click to cut)','LLM: DOWN (click to restore)')+tg('validation','pass','fail','Bundle validation: passes','Bundle validation: FAILS')+tg('plug','no','yes','Generated data: clean','Generated data: has plug rows')+tg('ledgers','present','missing','Ledger exports: present','Ledger exports: MISSING')+'</table>';
+ const q=Txns.quarter(S.today);
+ $('state').innerHTML=`<table><tr class="${S.changed.includes('today')?'chg':''}"><td class=k>today</td><td>${S.today} (auto span = ${q.label}, ${q.start} to ${q.end})</td></tr>
+ <tr class="${S.changed.includes('bundles')?'chg':''}"><td class=k>bundles/</td><td>${S.bundles.map(b=>`${b.id}${b.reviewed?' ✓reviewed':' (unreviewed)'}`).join('<br>')||'(empty)'}</td></tr>
+ <tr class="${S.changed.includes('runs')?'chg':''}"><td class=k>runs</td><td>${S.runs.map(r=>`#${r.n} ${r.period} seed ${r.seed} ${r.bundle} id ${r.id.slice(0,6)} ${r.rows} rows ${Txns.money(r.total)} exit ${r.code}`).join('<br>')||'(none)'}</td></tr></table>`;
+ $('free').innerHTML=`<button class=p onclick="act({t:'author'})">txns author</button><button onclick="act({t:'author',corr:'2026Q3-spotcheck'})">txns author --corrections …</button><button onclick="act({t:'approve'})">txns approve</button><button class=p onclick="act({t:'generate'})">txns generate</button><button onclick="act({t:'nextQuarter'})">→ next quarter arrives</button><button onclick="S=Txns.init();render()">reset</button>`;
+ $('term').textContent=S.out.join('\n')||'(no commands run yet)';$('term').scrollTop=1e9;
+}
+const setk=(k,v)=>({t:'set',k,v}),wk=(k,v)=>({t:'world',k,v});
+const SC=[
+ {n:'Quarter to quarter',d:'The 30-second promise (story 8). Author once, generate this quarter, the calendar rolls, generate again with the same untouched config. Watch: span and seed change by themselves; only the bundle stays.',
+  s:[['txns author',{t:'author'}],['txns generate (Q3)',{t:'generate'}],['next quarter arrives',{t:'nextQuarter'}],['txns generate (Q4, same config)',{t:'generate'}]]},
+ {n:'Repeat a run',d:'Story 2. Generate with a drawn seed, then repeat with that seed. Watch: identity matches, so output is byte-identical; a different target changes identity.',
+  s:[['author',{t:'author'}],['generate (seed drawn)',{t:'generate'}],['set seed = 7919 + 7000 → 14919',setk('seed','14919')],['generate again',{t:'generate'}],['change target to 4,100,000',setk('target','4100000')],['generate (new identity)',{t:'generate'}]]},
+ {n:'Unattended failures',d:'Story 6: walk away safely. LLM down while authoring must not damage the current bundle; validation failure likewise; generate never needs the network.',
+  s:[['author (ok)',{t:'author'}],['cut the LLM',wk('llm','down')],['author (fails, bundle untouched)',{t:'author'}],['generate still works offline',{t:'generate'}],['restore LLM, break validation',wk('validation','fail')],['author (rejected)',{t:'author'}]]},
+ {n:'Awkward generate cases',d:'Things generate must refuse or warn about: no bundle, unreviewed bundle, impossible scale, band too tight, hard scorecard failure (CSV still written, exit 1).',
+  s:[['generate with no bundle',{t:'generate'}],['author',{t:'author'}],['generate (warns unreviewed)',{t:'generate'}],['tier high + target 15M',setk('tier','high')],['',setk('target','15000000')],['generate (refuses)',{t:'generate'}],['back to mid, 4M, band 0.1%',setk('tier','mid')],['',setk('target','4000000')],['',setk('band_pct','0.1')],['generate (band fail)',{t:'generate'}],['band 2%, plug rows appear',setk('band_pct','2')],['',wk('plug','yes')],['generate (exit 1, CSV written)',{t:'generate'}]]}
+];
+let cur=0,pos=0;
+function rw(){ $('tabs').innerHTML=SC.map((s,i)=>`<button class="${i==cur?'on':''}" onclick="startWalk(${i})">${s.n}</button>`).join('');
+ const s=SC[cur];$('walk').innerHTML=`<p>${s.d}</p>`+s.s.map(([l,a],i)=>`<button class="step ${i<pos?'done':''}" ${i!==pos?'disabled':''} onclick="step(${i})">${i+1}. ${l||'(set '+a.k+' = '+a.v+')'}</button>`).join('')}
+function startWalk(i){cur=i;pos=0;S=Txns.init();render();rw()}
+function step(i){act(SC[cur].s[i][1]);pos=i+1;rw()}
+render();rw();
+</script></body></html>
