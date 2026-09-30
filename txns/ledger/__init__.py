@@ -5,6 +5,8 @@
     derived.ledger_hashes    # {file name: sha256 hex} for the bundle manifest
     derived.categories       # author category labels (FR-B2): headings of kept rows
     derived.kept, derived.excluded, derived.warnings
+    derived.ledgers          # every parsed row (names for the scrubber, txns.privacy)
+    derived.rows             # the kept spend rows (for the LLM payload, txns.privacy.payload)
 
 `root` is the working folder holding the committed inputs
 (`inputs/spend-only.json`, `inputs/ph-holidays.json`). Every failure is a
@@ -34,6 +36,8 @@ class Derived:
     kept: int
     excluded: Counter = field(default_factory=Counter)  # reason -> rows
     warnings: list[str] = field(default_factory=list)
+    ledgers: list[Ledger] = field(default_factory=list)  # hold real names: never write them out
+    rows: list[stats.SpendRow] = field(default_factory=list)
 
 
 def read_ledgers(ledgers_dir: Path) -> tuple[list[Ledger], dict[str, str]]:
@@ -82,4 +86,6 @@ def derive(ledgers_dir: Path, root: Path) -> Derived:
         kept=len(kept),
         excluded=excluded,
         warnings=warnings,
+        ledgers=ledgers,
+        rows=kept,
     )
