@@ -1,0 +1,22 @@
+{
+  "archetypes": {
+    "petty_daily": {
+      "max_per_day": 1,
+      "min_gap_days": 1,
+      "weekday_weights": [
+        17,
+        17,
+        17,
+        17,
+        17,
+        9,
+        5
+      ]
+    }
+  },
+  "tier_factors": {
+    "independent": 0.5,
+    "mid": 1.0,
+    "high": 2.5
+  }
+}

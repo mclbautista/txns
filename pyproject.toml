@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "txns"
+version = "0.1.0"
+description = "Realistic, deterministic spend-ledger CSV generator for load tests"
+readme = "README.md"
+requires-python = ">=3.12"
+# `generate` and `approve` use the standard library only (ADR 0007).
+dependencies = []
+
+[project.scripts]
+txns = "txns.cli:run"
+
+[tool.setuptools.packages.find]
+include = ["txns*"]

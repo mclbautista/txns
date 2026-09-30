@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "label": "fixture",
+  "note": "Hand-written test fixture. Fabricated names only.",
+  "generator": "txns 0.1.0",
+  "interpreter": "CPython 3.12.3",
+  "model": null,
+  "served_models": [],
+  "ledger_hashes": {},
+  "reviewed": false
+}
