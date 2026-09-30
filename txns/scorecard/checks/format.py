@@ -1,6 +1,6 @@
 """Format check (FR-H5): every row obeys the CSV rules of FR-H2. Hard."""
 
-from txns.scorecard.registry import FAIL, PASS, CheckResult, ScoreContext, check
+from txns.scorecard.registry import FAIL, PASS, CheckResult, ScoreContext, check, listing, result
 from txns.writer import row_violations
 
 
@@ -12,6 +12,5 @@ def format_check(ctx: ScoreContext) -> CheckResult:
         if problems:
             bad.append(f"row {n}: {'; '.join(problems)}")
     if bad:
-        more = f" (+{len(bad) - 3} more)" if len(bad) > 3 else ""
-        return CheckResult("format", "format", FAIL, True, "; ".join(bad[:3]) + more, value=len(bad), reference=0)
-    return CheckResult("format", "format", PASS, True, "all rows obey the CSV rules", value=0, reference=0)
+        return result("format", FAIL, listing(bad), value=len(bad), reference=0)
+    return result("format", PASS, "all rows obey the CSV rules", value=0, reference=0)
