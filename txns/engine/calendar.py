@@ -184,8 +184,10 @@ def apply_ceiling(ctx, rows: list) -> list:
     Only untagged, non-subscription rows move (tagged rows belong to a
     structure such as a deposit/balance pair). A row moves to the nearest day
     (later first) within MAX_SHIFT_DAYS that is inside the period, has weight
-    for the item (weekday, not a regular holiday), stays below the ceiling and
-    keeps the item's gap rules. A row with no such day stays: the ceiling is soft.
+    for the item (weekday, not a regular holiday), stays below the ceiling,
+    keeps the item's gap rules and has the same rate card as the row's day (a
+    move never crosses a price step, so the drawn amount stays valid and the
+    calibrated total is kept). A row with no such day stays: the ceiling is soft.
     """
     period = ctx.config.period
     cap = ceiling(rows, period.start, period.end, ceiling_ratio(ctx.bundle.rules))
@@ -233,6 +235,7 @@ def _movable(ctx, row) -> bool:
 
 def _target(ctx, item, shape: DayShape, day: date, mine: Counter, per_day: Counter, cap: int, period):
     max_per_day, min_gap = ctx.bundle.gap_rules(item)
+    card = item.points_on(day)
     others = [d for d, c in mine.items() if c > 0 and d != day] + ([day] if mine[day] > 1 else [])
     for k in range(1, MAX_SHIFT_DAYS + 1):
         for cand in (day + timedelta(days=k), day - timedelta(days=k)):
@@ -243,6 +246,8 @@ def _target(ctx, item, shape: DayShape, day: date, mine: Counter, per_day: Count
             if item.price_class == "big_ticket" and cand.weekday() >= 5:  # FR-E6
                 continue
             if mine[cand] >= max_per_day:
+                continue
+            if item.points_on(cand) != card:  # FR-F2: never across a price step (amounts are never re-priced)
                 continue
             if all(d == cand or abs((cand - d).days) >= min_gap for d in others):
                 return cand
