@@ -52,7 +52,8 @@ MAX_ITEMS_PER_CATEGORY = 12
 MIN_DESCRIPTIVE = 3  # plain plus vendor-prefixed (same rule as txns.bundle.text_rules)
 MIN_TERSE = 2
 MAX_VARIANTS = 12
-COLLISION_SPARE = 2  # extra variants asked of an item that lost one to a name coincidence
+COLLISION_SPARE = 2  # least extra variants asked of an item that lost one to a name coincidence
+COLLISION_SPARE_PER_LOSS = 2  # extra variants asked for each text an item lost
 SEPARATOR = " - "
 PCS = "{pcs}"  # pack-size placeholder, filled by the bundle (never by the LLM)
 EXAMPLE_TEXTS = 40  # item-text patterns shown to the vocabulary call
@@ -375,21 +376,81 @@ def collision_where(dropped: list[tuple[int, str, int]]) -> list[str]:
 
 
 def collision_problems(document: Any, dropped: list[tuple[int, str, int]]) -> list[str]:
-    """Re-ask lines for the items that lost texts, by item location and id only (never the text)."""
-    counts: dict[int, int] = {}
-    for i, _, _ in dropped:
-        counts[i] = counts.get(i, 0) + 1
+    """Re-ask lines for the items that lost texts, by item location and id only (never the text).
+
+    The surplus asked grows with what the item lost (`COLLISION_SPARE_PER_LOSS` for each text, at
+    least `COLLISION_SPARE`), for the kind of variant that lost texts, and never takes the item past
+    `MAX_VARIANTS`: an answer that comes back with more than that is no longer valid."""
+    lost: dict[int, dict[str, int]] = {}
+    for i, kind, _ in dropped:
+        by_kind = lost.setdefault(i, {})
+        group = "terse" if kind == "terse" else "descriptive"
+        by_kind[group] = by_kind.get(group, 0) + 1
     out = []
-    for i, n in counts.items():
+    for i, by_kind in lost.items():
         name = document["items"][i].get("id")
         label = f" (`{name}`)" if isinstance(name, str) and re.fullmatch(_ID["pattern"], name) else ""
+        n = sum(by_kind.values())
+        asks = [
+            f"{_surplus(by_kind[group], need)} more {group} variants than it needs"
+            for group, need in (("descriptive", MIN_DESCRIPTIVE), ("terse", MIN_TERSE)) if group in by_kind
+        ]
         out.append(
             f"$.items[{i}]{label}: {n} variant text{'s' if n != 1 else ''} removed because the wording "
             "coincides with a business name from the books; word this item differently, and give it "
-            f"{COLLISION_SPARE} more descriptive variants than it needs (and {COLLISION_SPARE} more terse ones "
-            "if it has terse variants) so one more coincidence can be dropped"
+            f"{' and '.join(asks)} so more coincidences can be dropped"
         )
     return out
+
+
+def _surplus(lost: int, need: int) -> int:
+    return min(max(COLLISION_SPARE, COLLISION_SPARE_PER_LOSS * lost), MAX_VARIANTS - need)
+
+
+def with_survivors(part: Part, earlier: Any, later: Any, drafts: Drafts) -> Any:
+    """`later` (a variants answer) with the texts of `earlier` that survived collision-dropping added
+    back to each item that is still under its counts, so what the model gave in both answers counts.
+
+        merged = with_survivors(part, first_answer_minus_dropped, reask_answer_minus_dropped, drafts)
+
+    Only texts `earlier` carried after `without_collisions` are used, so none matches a ledger name;
+    nothing is added to an item that already meets its counts (big-ticket items get no terse text), a text the item already has is not
+    added twice, and the result goes through `problems` like any answer."""
+    def items(doc):
+        found = doc.get("items") if part.kind == "variants" and isinstance(doc, dict) else None
+        return found if isinstance(found, list) else None
+
+    before, after = items(earlier), items(later)
+    if before is None or after is None:
+        return later
+    old: dict[str, Any] = {}
+    for x in before:
+        if isinstance(x, dict) and isinstance(x.get("id"), str):
+            old.setdefault(x["id"], x)
+    merged = []
+    for item in after:
+        item_id = item.get("id") if isinstance(item, dict) else None
+        was = old.get(item_id) if isinstance(item_id, str) else None
+        big_ticket = drafts.items.get(item_id, {}).get("class") == "big_ticket"
+        if was is None or not all(isinstance(item.get(k), list) and isinstance(was.get(k), list)
+                                  for k in ("descriptive", "terse", "vendor")):
+            merged.append(item)
+            continue
+        item = {**item, "descriptive": list(item["descriptive"]), "terse": list(item["terse"])}
+        have = {t.casefold() for t in item["descriptive"] + item["terse"] if isinstance(t, str)}
+        have |= {x["text"].casefold() for x in item["vendor"] if isinstance(x, dict) and isinstance(x.get("text"), str)}
+        for kind, short in (
+            ("descriptive", lambda: len(item["descriptive"]) + len(item["vendor"]) < MIN_DESCRIPTIVE),
+            ("terse", lambda: not big_ticket and len(item["terse"]) < MIN_TERSE),
+        ):
+            for text in was[kind]:
+                if not short():
+                    break
+                if isinstance(text, str) and text.casefold() not in have:
+                    item[kind].append(text)
+                    have.add(text.casefold())
+        merged.append(item)
+    return {**later, "items": merged}
 
 
 def problems(part: Part, document: Any, payload: Mapping[str, Any], drafts: Drafts, index: NameIndex) -> list[str]:

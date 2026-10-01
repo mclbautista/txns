@@ -27,8 +27,10 @@ storylines, catalog batches, variants batches, vocabulary). For each part:
    books also use as a name). Those texts are dropped locally (`parts.without_collisions`)
    and the rest is checked as usual; an item left short is re-asked once, by location
    and item id only, with the answer minus the dropped texts and a request for spare
-   variants. The leak check, the allowlist and every other rule are unchanged
-   (issue #29).
+   variants (two per lost text). An item the re-ask answer still leaves short is filled
+   from the first answer's surviving texts (`parts.with_survivors`) and the whole is
+   validated. The leak check, the allowlist and every other rule are unchanged
+   (issues #29, #31).
 
 Every response's reported cost is summed (FR-C6). Before each call (a new part
 or a re-ask) the run stops with exit 3 if this run's calls have reached
@@ -148,10 +150,16 @@ def draft_all(
         if bad:
             # FR-C5: one re-ask carrying the validation errors, then exit 4.
             warn(f"draft `{part.name}` failed its schema ({_count(bad)}); asking once more")
+            first = document
             response = call(part, _reask(request, bad, _sendable(response, document, dropped), index))
             cost += _cost(response)
             document, bad, dropped = _check(part, response, payload, result.drafts, index)
             _warn_dropped(part, dropped, warn)
+            if bad and first is not None and document is not None:
+                # What survived both answers counts: texts of the first answer fill what the second left short.
+                merged = parts.with_survivors(part, first, document, result.drafts)
+                if merged != document and not parts.problems(part, merged, payload, result.drafts, index):
+                    document, bad = merged, []
             if bad:
                 raise BundleInvalid(
                     f"draft `{part.name}` failed its schema again after one re-ask ({_count(bad)}): "
