@@ -25,7 +25,8 @@ Rules (a bundle that breaks one exits 4, so `generate` never has to guess):
   the one below it. The tier price is looked up, never computed;
 - price steps: ascending dates, at most one per calendar year; a step lists the
   same points (sellers carry over by position) with the same tier breaks, and
-  for retail and subscription items moves every price up by 3% to 15%;
+  for retail and subscription items moves every price up by 3% to 15% from the
+  step before it (the base card for the first), so each year compounds;
 - quantities: positive integers, or on decimal items positive decimals with at
   most 3 places whose amount at every price is whole centavos.
 
@@ -126,7 +127,8 @@ def _qty(where: str, raw: Any, decimal: bool) -> int | Decimal:
     return value
 
 
-def _step(where: str, raw: Any, base: tuple[PricePoint, ...], tiered: bool, price_class: str) -> PriceStep:
+def _step(where: str, raw: Any, prior: tuple[PricePoint, ...], tiered: bool, price_class: str) -> PriceStep:
+    """One dated step, checked against `prior`: the points of the step before it, or the base card for the first."""
     if not isinstance(raw, dict):
         raise _bad(where, "each price step must be a table with `date` and `points`")
     try:
@@ -135,10 +137,10 @@ def _step(where: str, raw: Any, base: tuple[PricePoint, ...], tiered: bool, pric
         raise _bad(where, f"price step `date` must be YYYY-MM-DD, got {raw.get('date')!r}") from None
     where = f"{where} step {day}"
     raw_points = raw.get("points")
-    if not isinstance(raw_points, list) or len(raw_points) != len(base):
-        raise _bad(where, f"a price step lists all {len(base)} price point(s), in rate-card order")
+    if not isinstance(raw_points, list) or len(raw_points) != len(prior):
+        raise _bad(where, f"a price step lists all {len(prior)} price point(s), in rate-card order")
     points = []
-    for old, new_raw in zip(base, raw_points):
+    for old, new_raw in zip(prior, raw_points):
         new = _point(where, new_raw, tiered, old.seller)
         if new.seller != old.seller:
             raise _bad(where, "a price step keeps each point's seller")
@@ -191,7 +193,10 @@ def parse_card(where: str, entry: dict[str, Any], card: dict[str, Any]) -> RateC
     raw_steps = card.get("steps") or []
     if not isinstance(raw_steps, list):
         raise _bad(where, "`steps` must be a list of {date, points}")
-    steps = tuple(_step(where, s, points, tiered, price_class) for s in raw_steps)
+    built: list[PriceStep] = []
+    for raw_step in raw_steps:  # each step is checked against the one before it, as authoring compounds them
+        built.append(_step(where, raw_step, built[-1].points if built else points, tiered, price_class))
+    steps = tuple(built)
     days = [s.date for s in steps]
     if days != sorted(set(days)):
         raise _bad(where, "price step dates must be strictly ascending")

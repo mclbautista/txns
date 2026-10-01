@@ -268,6 +268,28 @@ class PricingTest(BundleCase):
             self.assertTrue(1.03 * old <= new <= 1.15 * old, (old, new))
         self.assertNotIn("steps", cards["sound_system_and_equipment_b"])  # big tickets keep their figure
 
+    def test_low_anchor_steps_compound_and_promote(self):  # FR-F2, gate 7 checks each step against the last
+        ledger = self.ws.cwd / "inputs" / "ledgers" / "account-transactions-2024.csv"
+        text = ledger.read_text(encoding="utf-8")
+        for old, new in [  # the Swiftlane delivery fee at ₱10 instead of ₱95, the section still reconciling
+            ("95.00,0.00,95.00,95.00", "10.00,0.00,10.00,10.00"),
+            ("95.00,0.00,190.00,95.00", "10.00,0.00,20.00,10.00"),
+            ("150.00,0.00,460.00,150.00", "150.00,0.00,290.00,150.00"),
+            ("120.00,0.00,310.00,120.00", "120.00,0.00,140.00,120.00"),
+            ("0.00,95.00,365.00,(95.00)", "0.00,10.00,280.00,(10.00)"),
+            ("95.00,0.00,460.00,95.00", "10.00,0.00,290.00,10.00"),
+            ("555.00,95.00,460.00,460.00", "300.00,10.00,290.00,290.00"),
+            ('"135,203.00","1,575.00","253,628.00","139,163.00"', '"134,948.00","1,490.00","253,458.00","138,993.00"'),
+        ]:
+            self.assertEqual(text.count(old), 1, old)
+            text = text.replace(old, new)
+        ledger.write_text(text, encoding="utf-8")
+        folder, _, cards, _, _, out = self.priced()
+        steps = cards["delivery_fee_a"]["steps"]
+        prices = [cards["delivery_fee_a"]["points"][0]["unit_price"]] + [s["points"][0]["unit_price"] for s in steps]
+        self.assertEqual(prices, [1000, 1100, 1200])  # +20% on the base in all, +9.1% on the last step
+        self.assertIn("promoted bundles/", out)
+
     def test_missing_anchor_day_is_filled(self):
         fake = self.ws.llm.script("catalog-01", edit_item("software_subscriptions_a", lambda i: i.pop("params")))
         _, catalog, _, _, _, _ = self.priced(fake)
