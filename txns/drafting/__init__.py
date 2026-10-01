@@ -29,8 +29,10 @@ storylines, catalog batches, variants batches, vocabulary). For each part:
    and item id only, with the answer minus the dropped texts and a request for spare
    variants (two per lost text). An item the re-ask answer still leaves short is filled
    from the first answer's surviving texts (`parts.with_survivors`) and the whole is
-   validated. The leak check, the allowlist and every other rule are unchanged
-   (issues #29, #31).
+   validated. A draft that lost texts this way also drops, from its re-ask answer and from the
+   survivors, the texts whose pack-size wording is invalid (`parts.without_pack_wording`); nothing
+   else is repaired. The leak check, the allowlist and every other rule are unchanged
+   (issues #29, #31, #33).
 
 Every response's reported cost is summed (FR-C6). Before each call (a new part
 or a re-ask) the run stops with exit 3 if this run's calls have reached
@@ -145,18 +147,21 @@ def draft_all(
         )
         response = call(part, request)
         cost = _cost(response)
-        document, bad, dropped = _check(part, response, payload, result.drafts, index)
+        document, bad, dropped, _ = _check(part, response, payload, result.drafts, index)
         _warn_dropped(part, dropped, warn)
         if bad:
             # FR-C5: one re-ask carrying the validation errors, then exit 4.
             warn(f"draft `{part.name}` failed its schema ({_count(bad)}); asking once more")
-            first = document
+            first, collided = document, bool(dropped)
             response = call(part, _reask(request, bad, _sendable(response, document, dropped), index))
             cost += _cost(response)
-            document, bad, dropped = _check(part, response, payload, result.drafts, index)
+            document, bad, dropped, unfit = _check(part, response, payload, result.drafts, index, earlier_loss=collided)
             _warn_dropped(part, dropped, warn)
+            _warn_unfit(part, unfit, warn)
             if bad and first is not None and document is not None:
                 # What survived both answers counts: texts of the first answer fill what the second left short.
+                if collided or dropped:
+                    first, _ = parts.without_pack_wording(part, first, result.drafts)
                 merged = parts.with_survivors(part, first, document, result.drafts)
                 if merged != document and not parts.problems(part, merged, payload, result.drafts, index):
                     document, bad = merged, []
@@ -180,20 +185,29 @@ def _count(bad: list[str]) -> str:
     return f"{len(bad)} problem{'s' if len(bad) != 1 else ''}"
 
 
-def _check(part: Part, response: llm.Response, payload, drafts: Drafts,
-           index: NameIndex) -> tuple[Any, list[str], list[tuple[int, str, int]]]:
-    """(document, problems, dropped) of a response; problems == [] when it is a valid draft.
+def _check(part: Part, response: llm.Response, payload, drafts: Drafts, index: NameIndex,
+           earlier_loss: bool | None = None) -> tuple[Any, list[str], list[tuple[int, str, int]], list[int]]:
+    """(document, problems, dropped, unfit) of a response; problems == [] when it is a valid draft.
 
     A variants answer loses the texts that match a ledger name (`parts.without_collisions`,
     listed in `dropped`) and is valid when the rest still meets every rule; when it does not,
-    the problems start with one line per item that lost texts, by location only (issue #29)."""
+    the problems start with one line per item that lost texts, by location only (issue #29).
+
+    The answer to the re-ask (`earlier_loss` is a bool; None for the first answer) also loses its texts
+    with invalid pack-size wording (`parts.without_pack_wording`, the items in `unfit`) when the draft
+    lost texts to name coincidences, in the first answer (`earlier_loss`) or in this one: they are the
+    model's wording slips, not a reason to discard an answer that coincidences already thinned
+    (issue #33). Everything else is checked as usual."""
     try:
         document = parse(response.text)
     except (TypeError, ValueError) as exc:
-        return None, [f"the response is not one JSON document ({exc})"], []
+        return None, [f"the response is not one JSON document ({exc})"], [], []
     document, dropped = parts.without_collisions(part, document, index)
+    unfit: list[int] = []
+    if earlier_loss is not None and (earlier_loss or dropped):
+        document, unfit = parts.without_pack_wording(part, document, drafts)
     bad = parts.problems(part, document, payload, drafts, index)
-    return document, (parts.collision_problems(document, dropped) + bad if bad else bad), dropped
+    return document, (parts.collision_problems(document, dropped) + bad if bad else bad), dropped, unfit
 
 
 def _warn_dropped(part: Part, dropped: list[tuple[int, str, int]], warn: Callable[[str], None]) -> None:
@@ -201,6 +215,13 @@ def _warn_dropped(part: Part, dropped: list[tuple[int, str, int]], warn: Callabl
         warn(f"draft `{part.name}`: dropped {len(dropped)} text{'s' if len(dropped) != 1 else ''} that match a "
              f"ledger name (the model is never shown one), at these places in its answer: "
              f"{_shown(parts.collision_where(dropped))}")
+
+
+def _warn_unfit(part: Part, unfit: list[int], warn: Callable[[str], None]) -> None:
+    if unfit:
+        warn(f"draft `{part.name}`: dropped {len(unfit)} text{'s' if len(unfit) != 1 else ''} with pack-size or "
+             f"quantity wording that is not allowed, at these items of the re-ask answer: "
+             f"{_shown([f'$.items[{i}]' for i in dict.fromkeys(unfit)])}")
 
 
 def _sendable(response: llm.Response, document: Any, dropped: list) -> str:
