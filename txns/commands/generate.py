@@ -43,7 +43,7 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
     seed = parse_seed(args.seed, key="--seed") if args.seed is not None else cfg.seed
     bundle_name = args.bundle or cfg.bundle
 
-    bundle = store.load(store.find(store.bundles_root(rt.cwd), bundle_name))
+    bundle = store.load(store.find(store.bundles_root(rt.cwd), bundle_name, warn=rt.warn))
 
     warnings: list[str] = []
     if not bundle.reviewed:

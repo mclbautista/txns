@@ -16,7 +16,10 @@ Bundle files (all JSON, top level of the bundle folder):
                   each is used only on rows whose price point that seller sells (FR-H1).
                   Gates on this text: `txns.bundle.text_rules`.
 - storylines.json {name: {description, month_weights?, burst_days?, bursts_per_quarter?,
-                          quiet_days?}} (FR-E10, see `txns.bundle.storylines`)
+                          quiet_days?, parties_per_quarter?, archetype_overrides?}}
+                  (FR-E10, FR-E3, see `txns.bundle.storylines`). `Item.archetype` is the
+                  archetype in effect: the catalog's, unless the item's storyline
+                  overrides it (`Item.raw["archetype"]` keeps the catalog's).
 - rules.json      {"archetypes": {name: {...}}, "tier_factors": {...},
                    "calendar": {...} (day shape, see txns.engine.calendar)}
 - holidays.json   Philippine holiday calendar for the bundle's years (txns.holidays)
@@ -303,7 +306,9 @@ def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) ->
             storyline=entry["storyline"],
             category=entry["category"],
             price_class=entry["class"],
-            archetype=entry["archetype"],
+            archetype=storyline_rules.archetype_overrides(storylines[entry["storyline"]]).get(
+                entry["archetype"], entry["archetype"]
+            ),
             params=MappingProxyType(dict(entry.get("params") or {})),
             price_points=rate_card.points,
             quantities=rate_card.quantities,

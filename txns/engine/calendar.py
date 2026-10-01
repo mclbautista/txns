@@ -27,7 +27,8 @@ Subscription-class items ignore holidays, Holy Week and month-end here: their
 archetype pins them to an anchor day and uses `roll_forward` (FR-E8).
 
 `apply_ceiling` runs after calibration and moves rows off days above the soft
-ceiling (FR-E5) to the nearest day where the item's gap rules still hold.
+ceiling (FR-E5, per storyline) to the nearest day where the item's gap rules
+still hold.
 """
 
 from __future__ import annotations
@@ -51,6 +52,9 @@ DEFAULT_DAILY_CEILING = 3.0
 # Rows with these tags are not "ordinary": they neither count toward nor move under the ceiling.
 CEILING_EXEMPT_TAGS = ("batch", "duplicate", "party")
 MAX_SHIFT_DAYS = 7
+# Archetypes whose dates are a schedule (anchor day, period end +- jitter, FR-E4, FR-E8):
+# their rows count toward the ceiling but never move under it.
+SCHEDULED_ARCHETYPES = ("fixed_day_subscription", "periodic_top_up")
 
 
 def days(start: date, end: date) -> Iterator[date]:
@@ -174,6 +178,15 @@ def ceiling(rows: Sequence, start: date, end: date, ratio: float) -> int:
     return max(1, math.ceil(ratio * n / n_days)) if n_days > 0 else 1
 
 
+def storyline_ceilings(rows: Sequence, start: date, end: date, ratio: float) -> dict[str | None, int]:
+    """The ceiling of each storyline that has ordinary rows: `ceiling` over its own rows."""
+    groups: dict[str | None, list] = defaultdict(list)
+    for r in rows:
+        if is_ordinary(r):
+            groups[r.storyline].append(r)
+    return {s: ceiling(g, start, end, ratio) for s, g in groups.items()}
+
+
 def ceiling_ratio(rules: Mapping[str, Any]) -> float:
     return float(calendar_rules(rules).get("daily_ceiling", DEFAULT_DAILY_CEILING))
 
@@ -181,58 +194,78 @@ def ceiling_ratio(rules: Mapping[str, Any]) -> float:
 def apply_ceiling(ctx, rows: list) -> list:
     """Move ordinary rows off days above the soft ceiling (FR-E5).
 
-    Only untagged, non-subscription rows move (tagged rows belong to a
-    structure such as a deposit/balance pair). A row moves to the nearest day
+    The ceiling holds per storyline: a storyline's ordinary rows on one day stay
+    within `daily_ceiling` x that storyline's average ordinary rows a day, so
+    adding or removing another storyline never moves this one's rows (T5). The
+    storylines' caps add up to about the same multiple of the whole file's
+    average (each rounds up), which the scorecard's `daily_ceiling` check measures.
+
+    Only untagged rows of non-subscription, unscheduled items move (tagged rows
+    belong to a structure such as a deposit/balance pair; subscriptions and
+    top-ups keep their schedule, `SCHEDULED_ARCHETYPES`). A row moves to the nearest day
     (later first) within MAX_SHIFT_DAYS that is inside the period, has weight
-    for the item (weekday, not a regular holiday), stays below the ceiling and
-    keeps the item's gap rules. A row with no such day stays: the ceiling is soft.
+    for the item (weekday, not a regular holiday), stays below its storyline's
+    ceiling, keeps the item's gap rules and has the same rate card as the row's
+    day (a move never crosses a price step, so the drawn amount stays valid and
+    the calibrated total is kept). A row with no such day stays: the ceiling is
+    soft. Draws are on the storyline's own `ceiling` stream.
     """
     period = ctx.config.period
-    cap = ceiling(rows, period.start, period.end, ceiling_ratio(ctx.bundle.rules))
-    per_day = Counter(r.date for r in rows if is_ordinary(r))
-    if not per_day or max(per_day.values()) <= cap:
-        return rows
-    item_days: dict[str, Counter] = defaultdict(Counter)
-    for r in rows:
-        if r.item_id is not None:
-            item_days[r.item_id][r.date] += 1
-    shapes: dict[str, DayShape] = {}
-    stream = ctx.stream("calendar", "ceiling")
-    out = list(rows)
-    by_day: dict[date, list[int]] = defaultdict(list)
-    for i, r in enumerate(out):
+    caps = storyline_ceilings(rows, period.start, period.end, ceiling_ratio(ctx.bundle.rules))
+    by_storyline: dict[str | None, list[int]] = defaultdict(list)
+    for i, r in enumerate(rows):
         if is_ordinary(r):
-            by_day[r.date].append(i)
-    for day in sorted(d for d, c in per_day.items() if c > cap):
-        movable = [i for i in by_day[day] if _movable(ctx, out[i])]
-        stream.shuffle(movable)
-        excess = per_day[day] - cap
-        for i in movable:
-            if excess <= 0:
-                break
-            row = out[i]
-            item = ctx.bundle.items[row.item_id]
-            shape = shapes.setdefault(item.id, day_shape(ctx, item))
-            target = _target(ctx, item, shape, row.date, item_days[item.id], per_day, cap, period)
-            if target is None:
-                continue
-            out[i] = replace(row, date=target)
-            item_days[item.id][row.date] -= 1
-            item_days[item.id][target] += 1
-            per_day[row.date] -= 1
-            per_day[target] += 1
-            excess -= 1
+            by_storyline[r.storyline].append(i)
+    out = list(rows)
+    item_days: dict[str, Counter] | None = None
+    shapes: dict[str, DayShape] = {}
+    for storyline in sorted(by_storyline, key=lambda s: (s is None, s or "")):
+        idx = by_storyline[storyline]
+        cap = caps[storyline]
+        per_day = Counter(rows[i].date for i in idx)
+        if storyline is None or max(per_day.values()) <= cap:
+            continue  # rows without a storyline (not from the engine) never move
+        if item_days is None:
+            item_days = defaultdict(Counter)
+            for r in rows:
+                if r.item_id is not None:
+                    item_days[r.item_id][r.date] += 1
+        stream = ctx.stream("storyline", storyline, "ceiling")
+        by_day: dict[date, list[int]] = defaultdict(list)
+        for i in idx:
+            by_day[out[i].date].append(i)
+        for day in sorted(d for d, c in per_day.items() if c > cap):
+            movable = [i for i in by_day[day] if _movable(ctx, out[i])]
+            stream.shuffle(movable)
+            excess = per_day[day] - cap
+            for i in movable:
+                if excess <= 0:
+                    break
+                row = out[i]
+                item = ctx.bundle.items[row.item_id]
+                shape = shapes.setdefault(item.id, day_shape(ctx, item))
+                target = _target(ctx, item, shape, row.date, item_days[item.id], per_day, cap, period)
+                if target is None:
+                    continue
+                out[i] = replace(row, date=target)
+                item_days[item.id][row.date] -= 1
+                item_days[item.id][target] += 1
+                per_day[row.date] -= 1
+                per_day[target] += 1
+                excess -= 1
     return out
 
 
 def _movable(ctx, row) -> bool:
     if row.tags or row.item_id is None or row.item_id not in ctx.bundle.items:
         return False
-    return ctx.bundle.items[row.item_id].price_class != "subscription"
+    item = ctx.bundle.items[row.item_id]
+    return item.price_class != "subscription" and item.archetype not in SCHEDULED_ARCHETYPES
 
 
 def _target(ctx, item, shape: DayShape, day: date, mine: Counter, per_day: Counter, cap: int, period):
     max_per_day, min_gap = ctx.bundle.gap_rules(item)
+    card = item.points_on(day)
     others = [d for d, c in mine.items() if c > 0 and d != day] + ([day] if mine[day] > 1 else [])
     for k in range(1, MAX_SHIFT_DAYS + 1):
         for cand in (day + timedelta(days=k), day - timedelta(days=k)):
@@ -243,6 +276,8 @@ def _target(ctx, item, shape: DayShape, day: date, mine: Counter, per_day: Count
             if item.price_class == "big_ticket" and cand.weekday() >= 5:  # FR-E6
                 continue
             if mine[cand] >= max_per_day:
+                continue
+            if item.points_on(cand) != card:  # FR-F2: never across a price step (amounts are never re-priced)
                 continue
             if all(d == cand or abs((cand - d).days) >= min_gap for d in others):
                 return cand

@@ -136,6 +136,21 @@ class PromotionTest(BundleCase):
         self.assertIn("already promoted with this exact content", r.stdout)
         self.assertEqual(self.bundles(), before)
 
+    def test_same_name_taken_by_a_hand_edited_folder_exits_4(self):  # like approve (review 8)
+        self.ok("--label", "v1")
+        folder = self.only_bundle()
+        storylines = self.read(folder, "storylines")
+        next(iter(storylines.values()))["description"] = "Edited by hand"
+        (folder / "storylines.json").write_text(json.dumps(storylines, indent=2) + "\n", encoding="utf-8")
+        before = {p.name: p.read_bytes() for p in folder.iterdir()}
+        r = self.author("--label", "v1")
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertNotIn("already promoted with this exact content", r.stdout)
+        self.assertIn(f"{folder.name} already exists and has been hand-edited", r.stderr)
+        self.assertEqual(self.bundles(), [folder.name])
+        self.assertEqual({p.name: p.read_bytes() for p in folder.iterdir()}, before)
+        self.assertTrue((self.ws.cwd / STAGED / "manifest.json").is_file())  # kept for review
+
     def test_bad_label_exits_2_before_any_call(self):
         r = self.author("--label", "../escape")
         self.assertEqual(r.code, 2)
@@ -394,6 +409,26 @@ class OfflineGatesTest(BundleCase):
             points=c["delivery_fee_a"]["points"][:1], steps=[{"date": s["date"], "points": s["points"][:1]}
                                                              for s in c["delivery_fee_a"]["steps"]]))
         self.assertIn("2 to 4 price points", " ".join(self.failures(folder)["7"]))
+
+    def test_round_figure_price_step(self):  # gate 7 checks dated price steps too (review 5)
+        def round_step(cards):
+            card = cards["delivery_fee_a"]
+            card["points"][0]["unit_price"], card["points"][1]["unit_price"] = 92000, 94000
+            card["steps"][0]["points"] = [{"unit_price": 100000}, {"unit_price": 100000}]  # ₱1,000 at every qty
+            card["steps"][1]["points"] = [{"unit_price": 105000}, {"unit_price": 108000}]
+
+        problems = " ".join(self.failures(self.edited("rate_cards", round_step))["7"])
+        self.assertIn("item `delivery_fee_a`: price step 2026-01-01 point 0 gives a whole-₱1,000 amount", problems)
+        self.assertNotIn("price point 0", problems)  # the base card is fine
+
+    def test_malformed_vendor_variants_are_not_duplicate_items(self):  # gate 4 (review 9)
+        def no_separator(text):
+            for item in ("delivery_fee_a", "office_supplies_a"):
+                text[item]["vendor"][0]["text"] = f"Vendor{len(item)} purchase order"
+
+        failures = self.failures(self.edited("text", no_separator))
+        self.assertNotIn("4", failures)  # used to call both items '' and report them as the same item
+        self.assertIn("4-6", failures)  # the malformed variants are gate 4-6's to report
 
     def test_bundle_that_does_not_load(self):  # gate 7; the gates needing a bundle do not run
         folder = self.edited("rate_cards", lambda c: c["delivery_fee_a"]["points"][0].update(unit_price=9512))

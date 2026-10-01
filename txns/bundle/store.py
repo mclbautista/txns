@@ -2,6 +2,8 @@
 
 - A bundle folder is `bundles/<label>-<hash12>/` (FR-D3).
 - "latest" = highest `promotion` number in the manifests (FR-D5), reviewed or not.
+  A folder whose manifest cannot be read is skipped with a warning; naming it
+  explicitly exits 4.
 - Loading recomputes the content hash; a mismatch (hand edit without
   `approve`) exits 4. No bundle, or an unknown name, exits 2 (T8).
 - `approve` (FR-D4): `is_unedited` tells an untouched bundle from a hand-edited
@@ -12,15 +14,15 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from txns.bundle import hashing, model
 from txns.bundle.model import Bundle
-from txns.canonical import pretty_json
+from txns.canonical import atomic_write, pretty_json
 from txns.errors import BundleInvalid, MissingInput
 
 BUNDLES_DIR = "bundles"
@@ -41,22 +43,50 @@ def _read_manifest(folder: Path) -> dict:
     return manifest
 
 
-def list_bundles(root: Path) -> list[tuple[int, str, Path]]:
-    """(promotion, name, path) for every folder with a manifest, oldest first."""
+def _scan(root: Path) -> tuple[list[tuple[int, str, Path]], dict[str, BundleInvalid]]:
+    """Readable bundles as (promotion, name, path), oldest first, and the folders whose
+    manifest cannot be read (name -> the error)."""
+    found: list[tuple[int, str, Path]] = []
+    broken: dict[str, BundleInvalid] = {}
     if not root.is_dir():
-        return []
-    found = []
+        return found, broken
     for folder in sorted(root.iterdir()):
         if folder.is_dir() and (folder / hashing.MANIFEST).is_file():
-            promotion = _read_manifest(folder).get("promotion", 0)
+            try:
+                promotion = _read_manifest(folder).get("promotion", 0)
+            except BundleInvalid as exc:
+                broken[folder.name] = exc
+                continue
             found.append((promotion if isinstance(promotion, int) else 0, folder.name, folder))
-    return sorted(found)
+    return sorted(found), broken
 
 
-def find(root: Path, name: str) -> Path:
-    """Folder for `latest` or an explicit `<label>-<hash12>` name."""
-    bundles = list_bundles(root)
+def list_bundles(root: Path, *, warn: Callable[[str], None] | None = None) -> list[tuple[int, str, Path]]:
+    """(promotion, name, path) for every folder with a readable manifest, oldest first.
+
+    A folder whose manifest is unreadable is left out (with a warning through `warn`), so
+    one broken folder never blocks the others."""
+    found, broken = _scan(root)
+    if warn:
+        for name, exc in broken.items():
+            warn(f"skipping {BUNDLES_DIR}/{name}/: {exc}")
+    return found
+
+
+def find(root: Path, name: str, *, warn: Callable[[str], None] | None = None) -> Path:
+    """Folder for `latest` or an explicit `<label>-<hash12>` name.
+
+    Folders with an unreadable manifest are skipped (warned about) for `latest`; naming
+    one explicitly exits 4."""
+    bundles, broken = _scan(root)
+    if name in broken:
+        raise broken[name]
+    if warn:
+        for other, exc in broken.items():
+            warn(f"skipping {BUNDLES_DIR}/{other}/: {exc}")
     if not bundles:
+        if broken:
+            raise MissingInput(f"no readable bundle found in {root} ({len(broken)} with an unreadable manifest)")
         raise MissingInput(f"no bundle found in {root} (run `txns author` first)")
     if name == "latest":
         return bundles[-1][2]
@@ -86,9 +116,7 @@ def mark_reviewed(folder: Path) -> None:
     folder, not in it, so a crash never leaves a stray file inside the hashed content."""
     manifest = _read_manifest(folder)
     manifest["reviewed"] = True
-    tmp = folder.parent / f".{folder.name}.manifest.tmp"
-    tmp.write_text(pretty_json(manifest), encoding="utf-8")
-    os.replace(tmp, folder / hashing.MANIFEST)
+    atomic_write(folder / hashing.MANIFEST, pretty_json(manifest), tmp=folder.parent / f".{folder.name}.manifest.tmp")
 
 
 def load(folder: Path) -> Bundle:

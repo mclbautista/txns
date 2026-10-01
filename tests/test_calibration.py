@@ -247,6 +247,57 @@ class SubscriptionCase(CalibrationCase):
         self.assertGreater(retail[240_000], retail[190_000] + 0.2, "before retail quantities grow")
 
 
+def add_wide_seats(files):
+    """A subscription whose seat count (drawn once per run) ranges 1-10: the plan as drawn is
+    often far above a band that fewer seats would meet."""
+    add_item(
+        files,
+        "subs.cloud_seats",
+        storyline="subscriptions",
+        points=[(119_000, "cloud-1")],
+        quantities=[(q, 1) for q in range(1, 11)],
+        descriptive=["Cloud storage plan, per seat"],
+        price_class="subscription",
+        category="Subscriptions",
+        params={"per_week": 1.0},
+    )
+
+
+def only_wide_seats(files):
+    """The seats item alone: no item has an occurrence lever."""
+    add_wide_seats(files)
+    for item_id in list(files["catalog"]["items"]):
+        if item_id != "subs.cloud_seats":
+            for stem in ("catalog", "rate_cards", "text"):
+                (files[stem]["items"] if stem == "catalog" else files[stem]).pop(item_id)
+
+
+class ShrinkQuantitiesTest(CalibrationCase):
+    """A plan above the band lowers the quantity stages (scope, quantities, seats) when
+    fewer occurrences alone cannot get under it (review 1)."""
+
+    mutate = staticmethod(add_wide_seats)
+
+    def shrinks(self, config, target, band_pct, seeds=range(8)):
+        above = 0
+        for seed in seeds:
+            self.ws.write_config("")
+            natural = self.ws.run("generate", "--seed", str(seed))
+            above += natural.run_json["total_centavos"] > target * (100 + band_pct)
+            r = self.generate(config, seed)
+            self.assert_in_band(r, target, band_pct)
+            self.assert_no_plug_rows(r)
+        self.assertGreater(above, 2, "several seeds start above the band")
+
+    def test_seats_shrink_when_occurrences_cannot(self):
+        self.shrinks("target = 100000\nband_pct = 10\n", 100_000, 10)
+
+    def test_bundle_without_occurrence_levers_shrinks_seats(self):
+        self.ws = Workspace(self)
+        self.ws.install_bundle(mutate=only_wide_seats)
+        self.shrinks("target = 30000\nband_pct = 60\n", 30_000, 60)
+
+
 class TierAndStorylineTest(CalibrationCase):
     def test_tier_changes_rows_and_quantities_never_prices(self):  # T20, FR-E11
         runs = {}

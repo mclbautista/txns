@@ -121,32 +121,46 @@ class DeterminismTest(unittest.TestCase):
         self.assertEqual(flag.run_json["seed"], 43)
 
     def test_adding_a_storyline_leaves_other_storylines_rows_unchanged(self):  # T5
-        base = self.ws.run("generate", "--seed", "42")
+        # Calibration is a no-op here (FIXTURE_CONFIG): with a real target the total is shared by
+        # every storyline, so a new one changes how far the others are scaled (FR-G1).
+        def add_transport(files):  # petty rows on the same days as the fixture's (daily ceiling)
+            add_item(files, "transport.taxi", storyline="transport", points=[(25000, "taxi-1"), (32000, "taxi-2")],
+                     quantities=[(1, 1)], descriptive=["Taxi fare to color grading session"], terse=["Taxi fare"],
+                     params={"per_week": 4.0})
 
-        def add_transport(files):
-            add_item(
-                files,
-                "transport.taxi",
-                storyline="transport",
-                points=[(25000, "taxi-1"), (32000, "taxi-2")],
-                quantities=[(1, 1)],
-                descriptive=["Taxi fare to color grading session"],
-                terse=["Taxi fare"],
-                params={"per_week": 4.0},
-            )
+        def add_subscriptions(files):  # rows that never take part in duplicates
+            add_item(files, "subs.render", storyline="subscriptions", points=[(119_000, "render-1")],
+                     quantities=[(1, 2), (2, 1)], descriptive=["Render farm plan, monthly"], terse=["Render plan"],
+                     archetype="fixed_day_subscription", price_class="subscription", params={"anchor_day": 5})
 
-        ws2 = Workspace(self)
-        ws2.install_bundle(mutate=add_transport)
-        grown = ws2.run("generate", "--seed", "42")
-        self.assertEqual(grown.code, 0, grown.stderr)
-        new_texts = {"Taxi fare to color grading session", "Taxi fare"}
-        kept = [r for r in grown.rows if r["item/service"] not in new_texts]
+        def add_batch(files):  # batch-logged rows: tagged, several a day
+            add_item(files, "couriers.batch", storyline="couriers", points=[(9500, "rider-1"), (12000, "rider-2")],
+                     quantities=[(1, 1)], descriptive=["Courier run, batch of receipts"], terse=["Courier run"],
+                     archetype="batch_logged", params={"per_week": 5.0})
+            files["rules"]["archetypes"]["batch_logged"] = {"max_per_day": 8, "min_gap_days": 1}
+
+        new_texts = (
+            "Taxi fare to color grading session", "Taxi fare", "Render farm plan, monthly", "Render plan",
+            "Courier run, batch of receipts", "Courier run",
+        )
+        grown_ws = []
+        for add in (add_transport, add_subscriptions, add_batch, lambda f: (add_transport(f), add_batch(f))):
+            ws = Workspace(self)
+            ws.install_bundle(mutate=add)
+            grown_ws.append(ws)
         # Same rows. Entry order interleaves storylines, and the one row entered late when a
         # file would otherwise be perfectly date-sorted (FR-H4) depends on every row, so
-        # the comparison ignores order.
-        key = lambda r: tuple(r.values())
-        self.assertEqual(sorted(kept, key=key), sorted(base.rows, key=key))
-        self.assertGreater(len(grown.rows), len(base.rows))
+        # the comparison ignores order. Batch rows may carry a date tail, so new rows are
+        # recognised by the start of their text.
+        key = lambda r: tuple(r.values())  # noqa: E731
+        for seed in range(12):
+            base = sorted(self.ws.run("generate", "--seed", str(seed)).rows, key=key)
+            for i, ws in enumerate(grown_ws):
+                grown = ws.run("generate", "--seed", str(seed))
+                self.assertEqual(grown.code, 0, grown.stderr)
+                kept = [r for r in grown.rows if not r["item/service"].startswith(new_texts)]
+                self.assertEqual(sorted(kept, key=key), base, f"seed {seed}, addition {i}")
+                self.assertGreater(len(grown.rows), len(base))
 
     def test_generate_runs_offline_without_api_key_or_ledgers(self):  # T6
         def refuse(*a, **k):
@@ -226,6 +240,9 @@ class ConfigTest(unittest.TestCase):
             "target = 1.5\n",
             "band_pct = -1\n",
             'start = "yesterday"\n',
+            "start = 2026-07-01T00:00:00\n",  # a TOML datetime is not a date
+            "end = 2026-09-30T10:00:00+08:00\n",
+            'seed = "²"\n',  # a digit to str.isdigit, not to int()
             'start = "2026-09-01"\nend = "2026-08-01"\n',
             "seed = -1\n",
             "[multipliers.class]\nluxury = 2.0\n",
@@ -242,6 +259,8 @@ class ConfigTest(unittest.TestCase):
 
     def test_bad_flags_and_missing_explicit_config_exit_2(self):
         self.assertEqual(self.ws.run("generate", "--seed", "abc").code, 2)
+        self.assertEqual(self.ws.run("generate", "--seed", "²").code, 2)
+        self.assertEqual(self.ws.run("generate", "--seed", "1_000").code, 2)
         self.assertEqual(self.ws.run("generate", "--config", "nope.toml").code, 2)
         self.assertEqual(self.ws.run("generate", "--frobnicate").code, 2)
         self.assertEqual(self.ws.run().code, 2)
@@ -291,6 +310,31 @@ class BundleLookupTest(unittest.TestCase):
         self.ws.write_config(f'bundle = "{first}"\n')
         self.assertEqual(self.ws.run("generate", "--seed", "1").run_json["bundle"]["id"], first)
         self.assertEqual(self.ws.run("generate", "--seed", "1", "--bundle", second).run_json["bundle"]["id"], second)
+
+    def test_unreadable_manifest_skips_that_folder_with_a_warning(self):
+        good = self.ws.install_bundle(label="good")
+        broken = self.ws.install_bundle(label="broken", mutate=lambda f: f["storylines"]["errands"].update(description="v2"))
+        (self.ws.bundle_dir(broken) / "manifest.json").write_text("{not json", encoding="utf-8")
+        # Latest skips the broken folder (its promotion number is unreadable) and warns.
+        r = self.ws.run("generate", "--seed", "1")
+        self.assertEqual(r.code, 0, r.stderr)
+        self.assertEqual(r.run_json["bundle"]["id"], good)
+        self.assertRegex(r.stderr, rf"warning: skipping bundles/{broken}/: .*unreadable manifest")
+        # Naming the good bundle works; naming the broken one exits 4, no CSV.
+        r = self.ws.run("generate", "--seed", "2", "--bundle", good)
+        self.assertEqual(r.code, 0, r.stderr)
+        r = self.ws.run("generate", "--seed", "3", "--bundle", broken)
+        self.assertEqual(r.code, 4, r.stderr)
+        self.assertIn("unreadable manifest", r.stderr)
+        self.assertIsNone(r.csv_path)
+        # A manifest that is valid JSON but not an object is skipped the same way.
+        (self.ws.bundle_dir(broken) / "manifest.json").write_text("[]", encoding="utf-8")
+        self.assertEqual(self.ws.run("generate", "--seed", "1").code, 0)
+        # Nothing readable left: exit 2, naming the unreadable folder.
+        (self.ws.bundle_dir(good) / "manifest.json").write_text("", encoding="utf-8")
+        r = self.ws.run("generate", "--seed", "1")
+        self.assertEqual(r.code, 2, r.stderr)
+        self.assertIn("no readable bundle", r.stderr)
 
     def test_bundle_edited_in_place_fails_hash_check(self):
         name = self.ws.install_bundle()

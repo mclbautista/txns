@@ -297,6 +297,24 @@ class DailyCeilingTest(unittest.TestCase):  # FR-E5
         self.assertGreater(busiest, cap)
 
 
+    def test_a_moved_row_never_crosses_a_price_step(self):  # review 11, FR-F2
+        # A crowded day right before the step date used to push old-price rows onto it.
+        def stepped(files):
+            sparse_bundle(files)
+            for card in files["rate_cards"].values():
+                card["steps"] = [{"date": "2026-06-16", "points": [{"unit_price": card["points"][0]["unit_price"] + 1000}]}]
+
+        ws = Workspace(self)
+        ws.write_config(FULL_YEAR_2026)
+        ws.install_bundle(mutate=stepped)
+        for seed in (30, 36):  # both moved a row onto the step date before the fix
+            r = ws.run("generate", "--seed", str(seed))
+            self.assertEqual(r.code, 0, r.stdout)
+            self.assertEqual(metric(r.run_json, "price_stability")["status"], "pass", seed)
+            busiest, cap = self.busiest(r)
+            self.assertLessEqual(busiest, cap + 1, "the ceiling still applies (soft)")
+
+
 class ScorecardCalendarMetricsTest(unittest.TestCase):  # FR-I2, T23, T30
     def test_default_fixture_run_passes_the_calendar_metrics(self):
         ws = Workspace(self)

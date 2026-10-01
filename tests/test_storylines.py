@@ -10,7 +10,7 @@ import io
 import statistics
 import unittest
 from collections import Counter
-from datetime import date
+from datetime import date, timedelta
 
 from tests import test_calibration as calibration
 from tests.helpers import Workspace, add_item, load_fixture_files
@@ -126,6 +126,68 @@ class StorylineSchemaTest(unittest.TestCase):
 
         self.assert_invalid(bad_rules, "rules.archetypes.project_burst: `burst_days`")
         self.assert_invalid(add_project(drives={"per_burst": "lots"}), "item `project.drives`: param `per_burst`")
+
+
+ERRANDS_ITEMS = ("errands.courier", "errands.parking", "errands.mobile_load")
+
+
+def override_errands(overrides):
+    def mutate(files):
+        files["storylines"]["errands"]["archetype_overrides"] = overrides
+
+    return mutate
+
+
+class ArchetypeOverrideTest(unittest.TestCase):  # FR-E3: one primary archetype per item, overridable per storyline
+    def item_dates(self, result, files):
+        index = {t: i for i, v in files["text"].items()
+                 for t in v["descriptive"] + v["terse"] + [x["text"] for x in v.get("vendor", [])]}
+        out = {}
+        for row in result.rows:
+            out.setdefault(index[row["item/service"]], []).append(date.fromisoformat(row["date_of_transaction"]))
+        return {k: sorted(v) for k, v in out.items()}
+
+    def test_storyline_runs_its_items_with_the_override(self):
+        files = load_fixture_files()
+        base_ws, ws = Workspace(self), Workspace(self)
+        base_ws.install_bundle()
+        name = ws.install_bundle(mutate=override_errands({"petty_daily": "periodic_top_up"}))
+        bundle = store.load(ws.bundle_dir(name))
+        self.assertEqual(bundle.items["errands.parking"].archetype, "periodic_top_up")
+        self.assertEqual(bundle.items["errands.parking"].raw["archetype"], "petty_daily")  # the catalog keeps the primary
+        self.assertEqual(bundle.items["pantry.coffee"].archetype, "petty_daily")  # other storylines keep theirs
+        for seed in range(4):
+            base = self.item_dates(base_ws.run("generate", "--seed", str(seed)), files)
+            r = ws.run("generate", "--seed", str(seed))
+            self.assertEqual(r.code, 0, r.stdout + r.stderr)
+            got = self.item_dates(r, files)
+            for item_id in ERRANDS_ITEMS:  # top-ups: one near each month end, at least 7 days apart
+                days = got.get(item_id, [])
+                self.assertTrue(2 <= len(days) <= 4, (item_id, days))
+                for d in days:
+                    ends = [date(d.year, d.month + 1, 1) - timedelta(days=1) if d.month < 12 else date(d.year, 12, 31),
+                            date(d.year, d.month, 1) - timedelta(days=1)]
+                    self.assertLessEqual(min(abs((d - e).days) for e in ends), 2, (item_id, d))
+                self.assertTrue(all((b - a).days >= 7 for a, b in zip(days, days[1:])), days)
+                self.assertGreater(len(base[item_id]), len(days), "petty daily ran more often")
+            for item_id in ("pantry.coffee", "pantry.water", "pantry.snacks"):
+                self.assertEqual(got[item_id], base[item_id], "another storyline's rows unchanged")
+            self.assertEqual(metric(r.run_json, "gap_rules")["status"], "pass")
+
+    def test_bad_override_exits_4(self):
+        cases = [
+            ("petty_daily", "`archetype_overrides` must map archetype names to archetype names"),
+            ({"petty_daily": 3}, "`archetype_overrides` must map archetype names to archetype names"),
+            ({"petty_daily": "weekly_splurge"}, "unknown archetype `weekly_splurge`"),
+        ]
+        for overrides, message in cases:
+            with self.subTest(overrides=overrides):
+                ws = Workspace(self)
+                ws.install_bundle(mutate=override_errands(overrides))
+                r = ws.run("generate", "--seed", "1")
+                self.assertEqual(r.code, 4, r.stdout + r.stderr)
+                self.assertIn(message, r.stderr)
+                self.assertEqual(ws.all_csvs(), [])
 
 
 class ProjectBurstTest(BurstCase):

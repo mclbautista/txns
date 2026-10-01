@@ -37,14 +37,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 from pathlib import Path
 
 from txns import assembly, drafting, gates, holidays, ledger, llm, privacy
 from txns.assembly import anchors as price_anchors
 from txns.bundle import hashing, store
-from txns.canonical import pretty_json
+from txns.canonical import atomic_write, pretty_json
 from txns.commands import Runtime
 from txns.config import AUTHOR_DEFAULTS, load_config
 from txns.errors import BundleInvalid, ExitCode, MissingInput
@@ -69,13 +68,6 @@ def temp_dir(cwd: Path) -> Path:
     return cwd / TEMP_DIR
 
 
-def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8", newline="\n")
-    os.replace(tmp, path)
-
-
 def run(args: argparse.Namespace, rt: Runtime) -> int:
     # FR-C1, T33: a missing key stops the run before anything else is read or written.
     if not rt.env.get(API_KEY_ENV, "").strip():
@@ -97,8 +89,8 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
     calendar = holidays.load_committed(rt.cwd)
 
     out = temp_dir(rt.cwd)
-    _write(out / REFERENCE_FILE, pretty_json(derived.reference))
-    _write(out / LEDGERS_FILE, pretty_json({"ledger_hashes": derived.ledger_hashes}))
+    atomic_write(out / REFERENCE_FILE, pretty_json(derived.reference))
+    atomic_write(out / LEDGERS_FILE, pretty_json({"ledger_hashes": derived.ledger_hashes}))
 
     payload_text, index = _scrubbed_payload(derived, rt, out)
     payload = json.loads(payload_text)
@@ -148,6 +140,10 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
     root = store.bundles_root(rt.cwd)
     name = hashing.folder_name(label, hashing.content_hash(staging))
     if (root / name).exists():
+        if not store.is_unedited(root / name):
+            raise BundleInvalid(f"the assembled bundle would be promoted as {name}, but {name} already exists and "
+                                "has been hand-edited; approve or remove it first. bundles/ untouched; the assembled "
+                                f"bundle stays in {staged}/ for review")
         shutil.rmtree(staging)
         rt.out(f"bundle {name} is already promoted with this exact content; nothing new to promote")
         return ExitCode.OK
@@ -202,11 +198,11 @@ def _scrubbed_payload(derived: ledger.Derived, rt: Runtime, out: Path) -> tuple[
             f"{len(leaks)} place{'s' if len(leaks) != 1 else ''} in the payload ({shown}); "
             "no LLM call made and no payload written"
         )
-    _write(out / NAME_MAP_FILE, pretty_json({
+    atomic_write(out / NAME_MAP_FILE, pretty_json({
         "note": "Real ledger names and their fabricated stand-ins. Local only: never send, bundle or commit this file.",
         "names": index.private_map(),
     }))
-    _write(out / PAYLOAD_FILE, text)
+    atomic_write(out / PAYLOAD_FILE, text)
     blocked = len(index.blocked)
     rt.out(f"brand allowlist: {len(allow.entries)} entries; {len(index.names) - blocked} ledger names kept, "
            f"{blocked} replaced by fabricated names; leak check passed")
