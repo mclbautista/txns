@@ -62,6 +62,21 @@ class NoBundleTest(unittest.TestCase):
         self.assertFalse((ws.cwd / "bundles").exists())
 
 
+class UnreadableBundleTest(ApproveCase):
+    def test_other_bundle_still_approved_and_broken_one_named_exits_4(self):  # review 4
+        self.ok("--label", "v1")
+        v1 = self.only_bundle()
+        broken = self.root / "v0-000000000000"
+        broken.mkdir()
+        (broken / "manifest.json").write_text("{not json", encoding="utf-8")
+        r = self.approved()
+        self.assertIn(f"warning: skipping bundles/{broken.name}/", r.stderr)
+        self.assertIs(self.manifest(v1)["reviewed"], True)
+        r = self.approve(broken.name)
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("unreadable manifest", r.stderr)
+
+
 class UneditedTest(ApproveCase):
     def setUp(self):
         super().setUp()
@@ -250,6 +265,32 @@ class HandEditedTest(ApproveCase):
         self.assertEqual(r.code, 4, r.stderr)
         self.assertIn("not a valid bundle label", r.stderr)
         self.assertEqual(snapshot(self.root), before)
+
+    def test_missing_or_non_string_label_exits_4(self):
+        for label in (None, 7):
+            with self.subTest(label=label):
+                self.edit(self.folder, "manifest",
+                          lambda m: m.pop("label") if label is None else m.update(label=label))
+                before = snapshot(self.root)
+                r = self.approve()
+                self.assertEqual(r.code, 4, r.stdout + r.stderr)
+                self.assertIn("not a valid bundle label", r.stderr)
+                self.assertEqual(snapshot(self.root), before)
+
+    def test_new_name_taken_by_a_hand_edited_folder_exits_4_cleanly(self):
+        # The original's edit is approved as v1-<X>; v1-<X> is then edited in place too.
+        self.edit(self.folder, "storylines",
+                  lambda s: s["errands"].update(description="Small errands run by the office staff"))
+        self.approved()
+        new = self.latest()
+        self.edit(new, "storylines", lambda s: s["errands"].update(description="Edited again"))
+        before = snapshot(self.root)
+        r = self.approve(self.folder.name)  # its content still hashes to v1-<X>
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn(f"{new.name} already exists", r.stderr)
+        self.assertIn("hand-edited", r.stderr)
+        self.assertEqual(snapshot(self.root), before)
+        self.assertFalse((self.ws.cwd / approve_cmd.STAGING_DIR).exists())
 
 
 if __name__ == "__main__":

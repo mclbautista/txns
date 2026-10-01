@@ -18,7 +18,9 @@ The content hash is recomputed (`store.is_unedited`):
   the latest. The original folder is left exactly as it was (ADR 0002); `generate`
   refuses it by name, since its content no longer matches its hash.
   If a folder with that new name exists already (the same edit approved before, or
-  promoted by `author`), it is marked reviewed instead of writing a second copy.
+  promoted by `author`), it is marked reviewed instead of writing a second copy; if
+  that folder has itself been hand-edited, approve exits 4 before running the gates.
+  A missing or non-string manifest label on an edited bundle exits 4.
 
 `approve` never reads OPENROUTER_API_KEY and makes no network access (FR-C1).
 """
@@ -26,6 +28,7 @@ The content hash is recomputed (`store.is_unedited`):
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 from pathlib import Path
 
@@ -45,16 +48,24 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
 
 def run(args: argparse.Namespace, rt: Runtime) -> int:
     root = store.bundles_root(rt.cwd)
-    folder = store.find(root, args.bundle or "latest")  # FR-D4: no bundle exits 2
+    folder = store.find(root, args.bundle or "latest", warn=rt.warn)  # FR-D4: no bundle exits 2
     cfg = load_config(rt.cwd, args.config)
     settings = {**AUTHOR_DEFAULTS, **cfg.author}
 
     manifest = store.read_manifest(folder)
-    label = str(manifest.get("label"))
+    label = manifest.get("label")
     unedited = store.is_unedited(folder)
-    if not unedited and not store.LABEL_RE.match(label):
-        raise BundleInvalid(f"bundle {folder.name}: manifest label `{label}` is not a valid bundle label; "
-                            "nothing changed")
+    new_name = None
+    if not unedited:
+        if not isinstance(label, str) or not store.LABEL_RE.match(label):
+            raise BundleInvalid(f"bundle {folder.name}: manifest label {json.dumps(label)} is not a valid "
+                                "bundle label; nothing changed")
+        # The flag set on the copy is outside the hash, so the new folder's name is known now.
+        new_name = hashing.folder_name(label, hashing.content_hash(folder))
+        taken = root / new_name
+        if taken.exists() and not store.is_unedited(taken):
+            raise BundleInvalid(f"the edited content would be promoted as {new_name}, but {new_name} already "
+                                "exists and has itself been hand-edited; approve or remove it first. Nothing changed")
 
     if not privacy.load_allowlist(rt.cwd).found:
         rt.warn(f"{privacy.ALLOWLIST_PATH.as_posix()} not found; treating the brand allowlist as empty "
@@ -75,19 +86,21 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
         _mark(folder, rt, manifest.get("reviewed") is True)
         return ExitCode.OK
 
-    staging = rt.cwd / STAGING_DIR
-    shutil.rmtree(staging, ignore_errors=True)
-    staging.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(folder, staging)
-    store.mark_reviewed(staging)
-    existing = root / hashing.folder_name(label, hashing.content_hash(staging))
-    if existing.exists() and store.is_unedited(existing):
-        shutil.rmtree(staging)
+    existing = root / new_name
+    if existing.exists():  # unedited, checked above
         rt.out(f"the edited content is already promoted as {existing.name}")
         _mark(existing, rt, store.read_manifest(existing).get("reviewed") is True)
         rt.out(f"{store.BUNDLES_DIR}/{folder.name}/ left as it was")
         return ExitCode.OK
-    promoted = store.promote(staging, root, label)
+    staging = rt.cwd / STAGING_DIR
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copytree(folder, staging)
+        store.mark_reviewed(staging)
+        promoted = store.promote(staging, root, label)  # consumes the staging folder
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     rt.out(f"approved {promoted.name}: wrote {store.BUNDLES_DIR}/{promoted.name}/ (reviewed: true), now the latest bundle")
     rt.out(f"{store.BUNDLES_DIR}/{folder.name}/ left as it was (its content no longer matches its hash)")
     return ExitCode.OK

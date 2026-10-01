@@ -297,6 +297,31 @@ class BundleLookupTest(unittest.TestCase):
         self.assertEqual(self.ws.run("generate", "--seed", "1").run_json["bundle"]["id"], first)
         self.assertEqual(self.ws.run("generate", "--seed", "1", "--bundle", second).run_json["bundle"]["id"], second)
 
+    def test_unreadable_manifest_skips_that_folder_with_a_warning(self):
+        good = self.ws.install_bundle(label="good")
+        broken = self.ws.install_bundle(label="broken", mutate=lambda f: f["storylines"]["errands"].update(description="v2"))
+        (self.ws.bundle_dir(broken) / "manifest.json").write_text("{not json", encoding="utf-8")
+        # Latest skips the broken folder (its promotion number is unreadable) and warns.
+        r = self.ws.run("generate", "--seed", "1")
+        self.assertEqual(r.code, 0, r.stderr)
+        self.assertEqual(r.run_json["bundle"]["id"], good)
+        self.assertRegex(r.stderr, rf"warning: skipping bundles/{broken}/: .*unreadable manifest")
+        # Naming the good bundle works; naming the broken one exits 4, no CSV.
+        r = self.ws.run("generate", "--seed", "2", "--bundle", good)
+        self.assertEqual(r.code, 0, r.stderr)
+        r = self.ws.run("generate", "--seed", "3", "--bundle", broken)
+        self.assertEqual(r.code, 4, r.stderr)
+        self.assertIn("unreadable manifest", r.stderr)
+        self.assertIsNone(r.csv_path)
+        # A manifest that is valid JSON but not an object is skipped the same way.
+        (self.ws.bundle_dir(broken) / "manifest.json").write_text("[]", encoding="utf-8")
+        self.assertEqual(self.ws.run("generate", "--seed", "1").code, 0)
+        # Nothing readable left: exit 2, naming the unreadable folder.
+        (self.ws.bundle_dir(good) / "manifest.json").write_text("", encoding="utf-8")
+        r = self.ws.run("generate", "--seed", "1")
+        self.assertEqual(r.code, 2, r.stderr)
+        self.assertIn("no readable bundle", r.stderr)
+
     def test_bundle_edited_in_place_fails_hash_check(self):
         name = self.ws.install_bundle()
         rc = self.ws.bundle_dir(name) / "rate_cards.json"
