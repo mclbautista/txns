@@ -24,8 +24,9 @@ response matches its schema) is the drafting step's (`txns.drafting`).
     7  consistency  the bundle loads (every structural rule `generate` relies on),
                     every item has a registered archetype, a rate card and an allowed
                     quantity set, retail items 2 to 4 price points one per seller
-                    (deposit_balance excepted), and every point of an item not
-                    approved for round figures has a quantity giving a non-round amount
+                    (deposit_balance excepted), and every point (base card and dated
+                    price steps) of an item not approved for round figures has a
+                    quantity giving a non-round amount
     8  smoke        `generate` in memory on SMOKE_SEED with the config: no exit 2-6 and
                     no hard scorecard failure (writes nothing)
 """
@@ -98,9 +99,14 @@ def duplicate_items(bundle: Bundle) -> list[str]:
     seen: dict[str, str] = {}
     out = []
     for item in bundle.items.values():
-        texts = item.descriptive + tuple(v.text.partition(text_rules.SEPARATOR)[2] for v in item.vendor)
+        # A vendor variant names the item after `Vendor - `; one without the separator is
+        # malformed (gate 4-6 reports it) and names nothing here.
+        texts = item.descriptive + tuple(v.text.partition(text_rules.SEPARATOR)[2] for v in item.vendor
+                                         if text_rules.SEPARATOR in v.text)
         for text in dict.fromkeys(texts):
             key = words(text)
+            if not key:  # blank or punctuation only: gate 4-6's to report, not a name to compare
+                continue
             other = seen.setdefault(key, item.id)
             if other != item.id:
                 out.append(f"items `{other}` and `{item.id}` are the same item: both are called {text!r}")
@@ -125,10 +131,14 @@ def consistency(bundle: Bundle) -> list[str]:
             if None in sellers or len(set(sellers)) != len(sellers):
                 out.append(f"{where}: a retail item has one price point per seller")
         if not item.round_figures_approved:
-            for i, p in enumerate(item.price_points):
-                if not any(q.weight > 0 and not is_round_thousand(q.qty * p.price_for(q.qty)) for q in item.quantities):
-                    out.append(f"{where}: price point {i} gives a whole-₱1,000 amount at every quantity "
-                               "(a plug-row tell on an item not approved for round figures)")
+            cards = [("price point", item.price_points)]
+            cards += [(f"price step {step.date.isoformat()} point", step.points) for step in item.steps]
+            for what, points in cards:
+                for i, p in enumerate(points):
+                    if not any(q.weight > 0 and not is_round_thousand(q.qty * p.price_for(q.qty))
+                               for q in item.quantities):
+                        out.append(f"{where}: {what} {i} gives a whole-₱1,000 amount at every quantity "
+                                   "(a plug-row tell on an item not approved for round figures)")
     return out
 
 
