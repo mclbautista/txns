@@ -18,10 +18,19 @@ The connection is OpenRouter with the pinned `author.model` (`txns.llm`).
 Network errors and rate limits are retried 3 times with backoff, then exit 3; a
 retired model slug exits 3; reaching `author.max_cost_usd` (this run's summed
 per-response cost) stops before the next call with exit 3, drafts kept; a
-response that fails its draft schema is re-asked once, then exits 4. Bundle
-assembly, the promotion gates and promotion come in a later ticket. The API key
-is read only from OPENROUTER_API_KEY, goes only into the request's
+response that fails its draft schema is re-asked once, then exits 4. The API
+key is read only from OPENROUTER_API_KEY, goes only into the request's
 Authorization header and is never written or printed anywhere.
+
+Then the drafts, reference.json, the committed price anchors
+(`inputs/price-anchors.json`), the committed rule defaults
+(`inputs/bundle-rules.json`) and the committed holiday calendar are assembled
+into a bundle in `.txns/author/bundle/` (`txns.assembly`; drafted items with no
+anchor are left out and listed). The promotion gates (FR-D2 2-8, `txns.gates`,
+smoke `generate` included) run on that folder; only when all pass is it promoted
+to `bundles/<label>-<hash>/` as `reviewed: false`. A failing gate exits 4, leaves
+`bundles/` untouched and keeps the assembled folder for review. A bundle
+identical to one already promoted (same label and content) is not promoted twice.
 """
 
 from __future__ import annotations
@@ -29,9 +38,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 from pathlib import Path
 
-from txns import drafting, ledger, llm, privacy
+from txns import assembly, drafting, gates, holidays, ledger, llm, privacy
+from txns.assembly import anchors as price_anchors
+from txns.bundle import hashing, store
 from txns.canonical import pretty_json
 from txns.commands import Runtime
 from txns.config import AUTHOR_DEFAULTS, load_config
@@ -43,12 +55,14 @@ REFERENCE_FILE = "reference.json"
 LEDGERS_FILE = "ledgers.json"
 PAYLOAD_FILE = "payload.json"
 NAME_MAP_FILE = "name-map.json"  # local only
+STAGING_DIR = "bundle"  # the assembled bundle, under the temp folder, until it is promoted
+DEFAULT_LABEL = "draft"
 MAX_LEAK_LOCATIONS = 10
 
 
 def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--config", metavar="PATH", help="TOML config (default: txns.toml)")
-    p.add_argument("--label", metavar="NAME", help="label for the promoted bundle")
+    p.add_argument("--label", metavar="NAME", help=f"label for the promoted bundle (default: {DEFAULT_LABEL})")
 
 
 def temp_dir(cwd: Path) -> Path:
@@ -69,11 +83,18 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
 
     cfg = load_config(rt.cwd, args.config)
     settings = {**AUTHOR_DEFAULTS, **cfg.author}
+    label = args.label if args.label is not None else DEFAULT_LABEL
+    if not store.LABEL_RE.match(label):
+        raise MissingInput(f"bad --label `{label}`: use letters, digits, '.', '_' or '-', starting with a letter or digit")
     ledgers_dir = rt.path(settings["ledgers_dir"])
 
     derived = ledger.derive(ledgers_dir, rt.cwd)
     for w in derived.warnings:
         rt.warn(w)
+    # Committed inputs the bundle is assembled from: read now, so a missing one stops before any LLM call.
+    rules = assembly.load_rules(rt.cwd)
+    anchors = price_anchors.load(rt.cwd)
+    calendar = holidays.load_committed(rt.cwd)
 
     out = temp_dir(rt.cwd)
     _write(out / REFERENCE_FILE, pretty_json(derived.reference))
@@ -105,8 +126,45 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
         max_cost_usd=settings["max_cost_usd"],
     )
     _report_drafts(result, rt)
-    rt.out("bundle assembly and promotion are not built yet; stopping after the drafts")
+
+    built = assembly.assemble(
+        result.drafts, derived, rules=rules, anchors=anchors, calendar=calendar, label=label,
+        model=settings.get("model"), payload_hash=drafting.payload_hash(payload_text),
+    )
+    _report_assembly(built, rt)
+    staging = out / STAGING_DIR
+    shutil.rmtree(staging, ignore_errors=True)
+    assembly.write(built.files, staging)
+    staged = f"{TEMP_DIR.as_posix()}/{STAGING_DIR}"
+
+    report = gates.run_offline(staging, config=cfg, today=rt.today, index=index)
+    for line in report.lines():
+        rt.out(line)
+    if not report.ok:
+        failed = ", ".join(r.gate for r in report.failed())
+        raise BundleInvalid(f"promotion gate{'s' if len(report.failed()) > 1 else ''} {failed} failed; "
+                            f"bundles/ untouched; the assembled bundle stays in {staged}/ for review")
+
+    root = store.bundles_root(rt.cwd)
+    name = hashing.folder_name(label, hashing.content_hash(staging))
+    if (root / name).exists():
+        shutil.rmtree(staging)
+        rt.out(f"bundle {name} is already promoted with this exact content; nothing new to promote")
+        return ExitCode.OK
+    promoted = store.promote(staging, root, label)
+    rt.out(f"promoted {store.BUNDLES_DIR}/{promoted.name}/ (reviewed: false); check it, then run `txns approve`")
     return ExitCode.OK
+
+
+def _report_assembly(built: assembly.Assembly, rt: Runtime) -> None:
+    n = len(built.files["catalog"]["items"])
+    how = ", ".join(f"{count} from {basis} anchors" for basis, count in sorted(built.bases.items()))
+    rt.out(f"assembled {n} catalog item{'s' if n != 1 else ''} ({how}); "
+           f"{len(built.left_out)} drafted item{'s' if len(built.left_out) != 1 else ''} left out")
+    for x in built.left_out:
+        rt.out(f"  left out `{x.id}` ({x.category}): {x.reason}")
+    for note in built.notes:
+        rt.out(f"  {note}")
 
 
 def _report_drafts(result: drafting.Result, rt: Runtime) -> None:

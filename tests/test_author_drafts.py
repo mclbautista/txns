@@ -67,7 +67,7 @@ class ConnectionTest(DraftCase):
             self.assertTrue(req.instructions and req.schema)
         self.assertIn("6 LLM calls this run ($0.0600), 0 parts reused", r.stdout)
         self.assertIn("served by: fake/served-model-1", r.stdout)
-        self.assertIn("bundle assembly and promotion are not built yet", r.stdout)
+        self.assertRegex(r.stdout, r"promoted bundles/draft-[0-9a-f]{12}/ \(reviewed: false\)")
 
     def test_reported_model_and_cost_are_kept_per_part(self):  # FR-C8, FR-C6
         fake = ScriptedLLM().script("vocabulary", Reply(model="other/served-model-2", cost=0.25))

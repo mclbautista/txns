@@ -114,7 +114,8 @@ class ReferenceTest(AuthorCase):
         hashes = json.loads((self.ws.cwd / LEDGERS).read_text(encoding="utf-8"))["ledger_hashes"]
         expected = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(FIXTURE_LEDGERS.glob("*.csv"))}
         self.assertEqual(hashes, expected)
-        self.assertFalse((self.ws.cwd / "bundles").exists())
+        (bundle,) = (self.ws.cwd / "bundles").iterdir()  # FR-B4: the hashes go into the manifest
+        self.assertEqual(json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))["ledger_hashes"], expected)
 
     def test_category_headings_become_category_labels(self):  # FR-B2
         self.assertEqual(sorted(self.ref["category_totals"]), KEPT_CATEGORIES)

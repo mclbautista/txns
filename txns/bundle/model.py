@@ -22,6 +22,8 @@ Bundle files (all JSON, top level of the bundle folder):
 - holidays.json   Philippine holiday calendar for the bundle's years (txns.holidays)
 - reference.json  ledger statistics (filled by later tickets)
 - vocabulary.json optional: batch-logged date-tail formats (`txns.bundle.vocabulary`)
+- anchors.json    optional: where each item's prices come from and the drafted items
+                  left out (written by `author`, `txns.assembly`; read by promotion gate 2)
 
 Catalog `pack_pcs` (stock items): pieces per pack, for derived per-unit rows
 (`txns.bundle.packs`).

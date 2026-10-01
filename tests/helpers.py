@@ -35,7 +35,7 @@ FIXTURE_BUNDLE = Path(__file__).parent / "fixtures" / "bundle"
 FIXTURE_LEDGERS = Path(__file__).parent / "fixtures" / "ledgers"  # fabricated names only
 FIXTURE_ALLOWLIST = Path(__file__).parent / "fixtures" / "brands-allowlist.txt"  # fabricated brands
 REPO_ROOT = Path(__file__).parent.parent
-AUTHOR_INPUTS = ("spend-only.json", "ph-holidays.json")  # committed inputs `author` reads
+AUTHOR_INPUTS = ("spend-only.json", "ph-holidays.json", "price-anchors.json", "bundle-rules.json")  # committed inputs `author` reads
 DEFAULT_TODAY = date(2026, 10, 5)  # auto period = 2026-07-01 .. 2026-09-30
 
 # The fixture bundle spends about ₱25k a quarter, far below the ₱4M default
