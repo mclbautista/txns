@@ -14,7 +14,9 @@ down, and never above the calibration band). In order:
    its own text or, on `duplicate_same_text` of groups, copies the first row's.
    Only untagged rows of non-subscription items take part (tagged rows belong
    to a structure; subscriptions keep their anchor day). Per-item targets are
-   the rate scaled up by rows that cannot take part, rounded stochastically.
+   the rate scaled up by the rows of the item's storyline that cannot take
+   part, rounded stochastically (per storyline, so adding a storyline never
+   changes another one's duplicates; a storyline with no eligible row adds none).
 2. Derived per-unit prices (FR-F5): on about `per_unit_share` of a stock item's
    rows, among those whose chosen text states its pack size (`bundle.packs`),
    qty becomes pieces and unit_price the pack price over pieces. Tagged "per_unit".
@@ -133,18 +135,26 @@ def duplicates(ctx: EngineContext, rows: list[Row]) -> list[Row]:
     eligible = {
         k: [i for i in idx if _can_duplicate(ctx.bundle.items[k], rows[i])] for k, idx in by_item.items()
     }
-    n_eligible = sum(len(v) for v in eligible.values())
-    if not n_eligible:
-        return rows
-    elsewhere = sum(natural[k] for k, v in eligible.items() if not v)
-    item_rate = max(0.0, rate * len(rows) - elsewhere) / n_eligible
+    # The rate is met per storyline (so another storyline never changes this one's
+    # duplicates, T5): its eligible rows carry the groups its other rows cannot form.
+    storyline_of = {k: ctx.bundle.items[k].storyline for k in by_item}
+    n_rows: Counter = Counter()
+    n_eligible: Counter = Counter()
+    elsewhere: Counter = Counter()
+    for k, idx in by_item.items():
+        s = storyline_of[k]
+        n_rows[s] += len(idx)
+        n_eligible[s] += len(eligible[k])
+        if not eligible[k]:
+            elsewhere[s] += natural[k]
+    item_rate = {s: max(0.0, rate * n_rows[s] - elsewhere[s]) / n_eligible[s] for s in n_eligible if n_eligible[s]}
     same_text = setting(ctx.bundle, "duplicate_same_text")
     max_days = int(setting(ctx.bundle, "duplicate_max_days"))
     for item_id, idx in eligible.items():
         if not idx:
             continue
         stream = ctx.item_stream(item_id, "messiness.duplicates")
-        want = _stochastic_round(item_rate * len(idx), stream) - natural[item_id]
+        want = _stochastic_round(item_rate[storyline_of[item_id]] * len(idx), stream) - natural[item_id]
         if want <= 0:
             continue
         groups = _groups(rows, by_item[item_id])
