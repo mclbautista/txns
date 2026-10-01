@@ -343,6 +343,16 @@ class CalibratedMessyRunTest(unittest.TestCase):  # FR-G1 with messiness
                 self.assertTrue(8_000_000 <= total <= 8_160_000, total)
                 self.assertEqual(set(hard_statuses(r.run_json).values()), {"pass"})
 
+    def test_derived_per_unit_rows_never_lift_the_total_above_the_band(self):  # review 7
+        # Seed 2 closes on exactly ₱60,000; rounding a derived per-unit price up used to add 4 centavos.
+        ws = Workspace(self)
+        ws.install_bundle(mutate=lambda f: (add_batteries(f, per_week=10.0), messiness(f, per_unit_share=0.3)))
+        ws.write_config("target = 60000\nband_pct = 0\n", fixture_defaults=False)
+        r = ws.run("generate", "--seed", "2")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertEqual(sum(amount(row) for row in r.rows), 6_000_000)
+        self.assertEqual(r.run_json["total_centavos"], 6_000_000)
+
 
 if __name__ == "__main__":
     unittest.main()
