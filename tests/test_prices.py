@@ -157,6 +157,56 @@ class BundleRuleTest(unittest.TestCase):
             with self.subTest(needle):
                 self.assert_invalid(mutate, needle)
 
+    def test_steps_compound_from_the_preceding_step(self):  # FR-F2: each year's step is checked against the last
+        def pts(a, b):
+            return [{"unit_price": a}, {"unit_price": b}]
+
+        def two(first, second):
+            return lambda f: add_toner(
+                f,
+                points=((1_000, "office-1"), (1_500, "office-2")),
+                steps=[{"date": "2026-01-01", "points": pts(*first)}, {"date": "2027-01-01", "points": pts(*second)}],
+            )
+
+        ws = Workspace(self)
+        ws.install_bundle(mutate=two((1_100, 1_650), (1_200, 1_800)))  # ₱10 -> ₱11 -> ₱12 is +20% in all
+        self.assertEqual(ws.run("generate", "--seed", "1").code, 0)
+
+        outside = "outside +3% to +15%"
+        for name, first, second in [
+            ("decrease", (1_150, 1_700), (1_100, 1_650)),  # still +10% on the base
+            ("flat step", (1_100, 1_650), (1_100, 1_650)),  # still +10% on the base
+            ("undersized", (1_050, 1_575), (1_075, 1_600)),  # +2.4% on the last step, +7.5% on the base
+            ("oversized", (1_100, 1_650), (1_300, 1_950)),  # +18% on the last step
+        ]:
+            with self.subTest(name):
+                self.assert_invalid(two(first, second), outside)
+
+    def test_tiered_steps_compound_from_the_preceding_step(self):  # FR-F2, FR-F4
+        def tape(second):
+            tiers = lambda a, b: [{"min_qty": 5, "unit_price": a}, {"min_qty": 10, "unit_price": b}]
+            return lambda f: add_tape(
+                f,
+                steps=[
+                    {"date": "2026-01-01", "points": [{"unit_price": 205_000, "tiers": tiers(195_000, 187_500)}]},
+                    {"date": "2027-01-01", "points": [{"unit_price": second[0], "tiers": tiers(*second[1:])}]},
+                ],
+            )
+
+        ws = Workspace(self)
+        ws.install_bundle(mutate=tape((215_000, 205_000, 197_500)))
+        self.assertEqual(ws.run("generate", "--seed", "1").code, 0)
+
+        outside = "outside +3% to +15%"
+        for name, second in [
+            ("tier decrease", (215_000, 190_000, 185_000)),
+            ("tier flat", (215_000, 195_000, 187_500)),
+            ("tier undersized", (215_000, 196_000, 190_000)),  # +0.5% on the last step's tier
+            ("tier oversized", (230_000, 226_000, 200_000)),  # the 5-pack tier +15.9%
+        ]:
+            with self.subTest(name):
+                self.assert_invalid(tape(second), outside)
+
     def test_step_bounds_do_not_apply_to_big_ticket(self):
         ws = Workspace(self)
         ws.install_bundle(
