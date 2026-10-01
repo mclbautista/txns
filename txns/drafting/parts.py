@@ -14,7 +14,7 @@ payload always gives the same parts.
 Draft shapes (every object is closed: unknown keys are schema errors):
 
     storylines  {"storylines": [{"name", "description", "month_weights"?,
-                                 "burst_days"?, "bursts_per_quarter"?, "quiet_days"?}]}
+                                 "burst_days"?, "bursts_per_quarter"?, "quiet_days"?, "parties_per_quarter"?}]}
     catalog     {"items": [{"id", "category", "storyline", "class", "archetype",
                             "goods"?, "decimal"?, "params"?,
                             "sellers": [{"id", "vendor": name | null}]}]}
@@ -72,8 +72,8 @@ PARAMS: dict[str, dict[str, tuple[float, float, bool]]] = {  # name -> (min, max
     "project_burst": {"per_burst": (0.1, 50, False)},
     "periodic_top_up": {"per_month": (0.1, 31, False)},
     "petty_daily": {"per_week": (0.01, 50, False)},
-    "deposit_balance": {},
-    "one_off_big_ticket": {},
+    "deposit_balance": {"per_quarter": (0.1, 30, False)},
+    "one_off_big_ticket": {"per_quarter": (0.1, 30, False)},
     "batch_logged": {"per_week": (0.01, 50, False)},
 }
 CLASSES = PRICE_CLASSES
@@ -111,6 +111,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                                "items": {"type": "integer", "minimum": 1, "maximum": 92}},
                 "bursts_per_quarter": {"type": "number", "minimum": 0, "maximum": 30},
                 "quiet_days": {"type": "integer", "minimum": 0, "maximum": 92},
+                "parties_per_quarter": {"type": "number", "minimum": 0, "maximum": 30},
             },
         }}},
     },
@@ -183,7 +184,8 @@ INSTRUCTIONS: dict[str, str] = {
         "errands, the software stack, post-production projects, the year-end party). Give each a snake_case "
         "name and a one-sentence description. A seasonal storyline gives its off-season months weight 0 in "
         "month_weights (keys \"1\" to \"12\"); a project storyline may give burst_days [min, max], "
-        "bursts_per_quarter and quiet_days. Leave out settings you have no reason to set."
+        "bursts_per_quarter and quiet_days; a party storyline gives parties_per_quarter (its project_burst "
+        "items then fall on party days, several rows a day). Leave out settings you have no reason to set."
     ),
     "catalog": _COMMON + (
         "Propose catalog items for every category in the input, at least one per category and at most "
