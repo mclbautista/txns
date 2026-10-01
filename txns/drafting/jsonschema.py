@@ -2,11 +2,14 @@
 
     errors(document, schema) -> ["$.items[2].id: does not match ^[a-z]...", ...]   # [] = valid
 
-Supports the subset the draft schemas use: `type` (a name or a list of names),
-`properties`, `required`, `additionalProperties` (false or a schema), `items`,
-`minItems`, `maxItems`, `enum`, `pattern` (searched, so anchor it), `minLength`,
-`maxLength`, `minimum`, `maximum`. The same schema dicts are sent with each
-request, so the model is asked for exactly what is checked here.
+Supports the subset the draft schemas use: `type` (a name; a list of names is
+checked too, but providers refuse it, so write a nullable field as `anyOf`
+[schema, {"type": "null"}]), `anyOf` (valid when one branch is; the error names
+what was expected, not each branch's errors), `properties`, `required`,
+`additionalProperties` (false or a schema), `items`, `minItems`, `maxItems`,
+`enum`, `pattern` (searched, so anchor it), `minLength`, `maxLength`, `minimum`,
+`maximum`. The same schema dicts are sent with each request, so the model is
+asked for exactly what is checked here.
 """
 
 from __future__ import annotations
@@ -32,6 +35,10 @@ def errors(document: Any, schema: Mapping[str, Any], path: str = "$") -> list[st
 
 
 def _check(v: Any, schema: Mapping[str, Any], path: str, out: list[str]) -> None:
+    if "anyOf" in schema and not any(not errors(v, branch, path) for branch in schema["anyOf"]):
+        shown = _kind(v) if isinstance(v, (dict, list)) else repr(v)
+        out.append(f"{path}: {shown} is not {_expected(schema['anyOf'])}")
+        return
     kinds = schema.get("type")
     if kinds is not None:
         names = [kinds] if isinstance(kinds, str) else list(kinds)
@@ -73,6 +80,25 @@ def _check(v: Any, schema: Mapping[str, Any], path: str, out: list[str]) -> None
                 out.append(f"{path}: unexpected key `{key}`")
             elif isinstance(extra, Mapping):
                 _check(x, extra, f"{path}.{key}", out)
+
+
+def _expected(branches: list[Mapping[str, Any]]) -> str:
+    """What an `anyOf` asks for, in words: "one of 'stock', 'hardware', or null", "a non-empty string or null"."""
+    if all("enum" in b or b.get("type") == "null" for b in branches):
+        values = [repr(x) if x is not None else "null" for b in branches for x in b.get("enum", [None])]
+        return "one of " + (", ".join(values[:-1]) + ", or " + values[-1] if len(values) > 1 else values[0])
+    return " or ".join(map(_described, branches))
+
+
+def _described(schema: Mapping[str, Any]) -> str:
+    if "enum" in schema:
+        return "one of " + ", ".join(map(repr, schema["enum"]))
+    kinds = schema.get("type")
+    names = [kinds] if isinstance(kinds, str) else list(kinds or ["any value"])
+    if names == ["string"] and schema.get("minLength") == 1:
+        return "a non-empty string"
+    article = {"null": "", "any value": "", "array": "an ", "integer": "an ", "object": "an "}
+    return " or ".join(article.get(n, "a ") + n for n in names)
 
 
 def _kind(v: Any) -> str:

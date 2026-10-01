@@ -161,11 +161,16 @@ class FakeHTTP:
     """Stands in for `urllib.request.urlopen`: records each call, answers from `handler`.
 
     `handler(body, headers)` returns (status, json-able body) or raises (an HTTPError or
-    URLError built with `http_error` / `urllib.error.URLError`). Default: a valid draft."""
+    URLError built with `http_error` / `urllib.error.URLError`). Default: a valid draft.
 
-    def __init__(self, handler=None):
+    `like_anthropic=True` first refuses, the way Anthropic's structured-output validator
+    does through OpenRouter, any request whose schema has a node with a list-valued `type`
+    (HTTP 400 "Provider returned error", the provider's reason in `error.metadata.raw`)."""
+
+    def __init__(self, handler=None, *, like_anthropic=False):
         self.calls: list[tuple[dict, dict]] = []
         self.handler = handler or self.answer
+        self.like_anthropic = like_anthropic
 
     @staticmethod
     def request_of(body: dict) -> llm.Request:
@@ -187,6 +192,10 @@ class FakeHTTP:
         body = json.loads(req.data.decode("utf-8"))
         headers = {k.lower(): v for k, v in req.header_items()}
         self.calls.append((body, headers))
+        if self.like_anthropic:
+            for where, kinds in _type_lists(body["response_format"]["json_schema"]["schema"]):
+                raise http_error(400, "Provider returned error", provider="Anthropic", raw=anthropic_error(
+                    f"output_format.schema{where}: declared type {kinds!r} is not supported"))
         status, data = self.handler(body, headers)
         return _Response(status, json.dumps(data).encode("utf-8"))
 
@@ -205,12 +214,34 @@ class _Response:
         return False
 
 
-def http_error(code: int, message: str, retry_after: str | None = None) -> urllib.error.HTTPError:
+def _type_lists(schema, where=""):
+    """(path, kinds) of every schema node whose `type` is a list."""
+    if isinstance(schema, dict):
+        if isinstance(schema.get("type"), list):
+            yield where or ".", schema["type"]
+        for key, sub in schema.items():
+            yield from _type_lists(sub, f"{where}.{key}")
+    elif isinstance(schema, list):
+        for i, sub in enumerate(schema):
+            yield from _type_lists(sub, f"{where}[{i}]")
+
+
+def anthropic_error(message: str) -> str:
+    """An Anthropic API error body, as OpenRouter passes it on in `error.metadata.raw`."""
+    return json.dumps({"type": "error", "error": {"type": "invalid_request_error", "message": message}})
+
+
+def http_error(code: int, message: str, retry_after: str | None = None, *,
+               raw: str | None = None, provider: str | None = None) -> urllib.error.HTTPError:
+    """An OpenRouter error answer; `raw` / `provider` fill `error.metadata` (a provider's own error)."""
     headers = email.message.Message()
     if retry_after is not None:
         headers["Retry-After"] = retry_after
-    raw = json.dumps({"error": {"code": code, "message": message}}).encode("utf-8")
-    return urllib.error.HTTPError(llm.OPENROUTER_URL, code, "error", headers, io.BytesIO(raw))
+    error = {"code": code, "message": message}
+    if raw is not None:
+        error["metadata"] = {"raw": raw} | ({"provider_name": provider} if provider else {})
+    body = json.dumps({"error": error}).encode("utf-8")
+    return urllib.error.HTTPError(llm.OPENROUTER_URL, code, "error", headers, io.BytesIO(body))
 
 
 def failing(exc_factory):
@@ -345,6 +376,46 @@ class OpenRouterTest(unittest.TestCase):
         self.assertEqual(code, 3, out + err)
         self.assertEqual(len(http.calls), 1)
         self.assertIn("accepts the data-collection denial", err)
+
+    def test_a_provider_that_refuses_type_lists_accepts_every_draft_schema(self):
+        http = FakeHTTP(like_anthropic=True)
+        code, out, err = self.author(http)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(len(http.calls), len(PARTS))
+        self.assertRegex(out, r"promoted bundles/draft-[0-9a-f]{12}/")
+
+    def test_a_provider_refusal_shows_the_provider_reason_and_exits_3(self):
+        reason = "output_format.schema: Enum value 'stock' does not match declared type '['string', 'null']'"
+        for raw in (anthropic_error(reason), reason):  # a JSON error object, or plain text
+            with self.subTest(raw=raw):
+                self.sleeps.clear()
+                http = FakeHTTP(failing(lambda: http_error(400, "Provider returned error", raw=raw,
+                                                           provider="Anthropic")))
+                code, out, err = self.author(http)
+                self.assertEqual(code, 3, out + err)
+                self.assertEqual(len(http.calls), 1)  # a schema refusal is not retried
+                self.assertEqual(self.sleeps, [])
+                self.assertIn("OpenRouter refused the request: HTTP 400 (Provider returned error", err)
+                self.assertIn(f"Anthropic: {reason}", err)
+                self.assertNotIn('"invalid_request_error"', err)  # the innermost message, not the JSON
+
+    def test_the_provider_reason_is_cleaned_like_other_error_text(self):
+        raw = anthropic_error(f"bad\nrequest   with key {SECRET} " + "x" * 1000)
+        http = FakeHTTP(failing(lambda: http_error(400, "Provider returned error", raw=raw)))
+        code, out, err = self.author(http)
+        self.assertEqual(code, 3, out + err)
+        self.assertNotIn(SECRET, out + err)
+        line = next(x for x in err.splitlines() if "OpenRouter refused the request" in x)
+        self.assertIn("Provider returned error; bad request with key [key] xxx", line)
+        self.assertIn("...)", line)  # cut to the error-text cap
+        self.assertLess(len(line), llm.MAX_ERROR_TEXT + 200)
+
+    def test_a_refusal_without_metadata_reads_as_before(self):
+        http = FakeHTTP(failing(lambda: http_error(400, "Provider returned error")))
+        code, out, err = self.author(http)
+        self.assertEqual(code, 3, out + err)
+        self.assertEqual(len(http.calls), 1)
+        self.assertIn("OpenRouter refused the request: HTTP 400 (Provider returned error)", err)
 
     def test_a_re_ask_goes_out_as_a_follow_up_message(self):  # T35 on the wire
         http = FakeHTTP()
