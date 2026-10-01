@@ -15,7 +15,7 @@ import json
 import re
 import unittest
 
-from tests.llm_fake import Reply, ScriptedLLM
+from tests.llm_fake import Reply, ScriptedLLM, valid_draft
 from tests.test_author_drafts import MODEL, DraftCase
 from txns import ledger
 from txns.drafting import parts
@@ -44,6 +44,36 @@ def _collide(round_: int, spare: int = 0):
             texts[at] = f"{v['id'].replace('_', ' ')} {COLLIDING[3 * round_ + n]}"
             v[kind] = texts
     return edit
+
+
+def _asked(edit):
+    """A scripted answer to the re-ask for only the short items (issue #36), written as an edit of a valid draft of
+    the items listed in the request: the model writes exactly the number of new texts that were asked for (issue
+    #40) and no vendor-prefixed text. An edit that gives fewer is padded with copies of its first text (a repeat
+    adds nothing); one that gives more is a mistake of the test."""
+    def respond(request):
+        doc = valid_draft(request)
+        edit(doc)
+        for v, item in zip(doc["items"], request.input["items"]):
+            v["vendor"], v["terse"] = [], v["terse"][: item["need"]["terse"]]
+            v["descriptive"] += v["descriptive"][:1] * (item["need"]["descriptive"] - len(v["descriptive"]))
+            assert (len(v["descriptive"]), len(v["terse"])) == (item["need"]["descriptive"], item["need"]["terse"]), v["id"]
+        return doc
+    return respond
+
+
+def _again(round_: int, *, repeat: bool = False):
+    """The re-ask answer of `_collide`'s three items: the `need` new texts, one at the reported path a match.
+    With `repeat` the model words them as in the first answer, so nothing new comes of them."""
+    def respond(request):
+        items = []
+        for n, item in enumerate(request.input["items"]):
+            base, need = item["id"].replace("_", " "), item["need"]["descriptive"]
+            texts = _plain(item["id"], 3) if repeat else [f"{base} {w}" for w in ("refill", "extra", "spare")]
+            texts[PATHS[n][1] % need] = f"{base} {COLLIDING[3 * round_ + n]}"
+            items.append({"id": item["id"], "descriptive": texts[:need], "terse": [], "vendor": []})
+        return {"items": items}
+    return respond
 
 
 class CollisionCase(DraftCase):
@@ -81,7 +111,7 @@ class RepeatedCollisionTest(CollisionCase):
     def test_the_reported_failure_now_promotes_an_unreviewed_bundle(self):
         # First answer: valid except three matches. The re-ask answer: three new matches at the
         # same paths. Before the fix this exited 4 after the one re-ask and promoted nothing.
-        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1, spare=2)))
+        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(respond=_again(1)))
         r = self.ok(fake)
         self.assertEqual(fake.parts().count("variants-01"), 2)  # one re-ask, no more
         self.assertRegex(r.stdout, r"promoted bundles/draft-[0-9a-f]{12}/ \(reviewed: false\)")
@@ -89,7 +119,7 @@ class RepeatedCollisionTest(CollisionCase):
         self.assert_no_collision_text(r, fake)
 
     def test_what_survives_is_a_valid_draft(self):
-        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1, spare=2)))
+        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(respond=_again(1)))
         self.ok(fake)
         saved = self.saved("variants-01")["draft"]
         for v in saved["items"]:
@@ -101,7 +131,7 @@ class RepeatedCollisionTest(CollisionCase):
             self.assertFalse(any(t.endswith(tuple(COLLIDING)) for t in v["descriptive"]))
 
     def test_the_re_ask_is_targeted_and_never_repeats_a_matching_text(self):
-        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1, spare=2)))
+        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(respond=_again(1)))
         self.ok(fake)
         first, again = [q for q in fake.requests if q.part == "variants-01"]
         self.assertEqual(first.problems, ())
@@ -117,7 +147,7 @@ class RepeatedCollisionTest(CollisionCase):
         self.assertEqual((again.model, again.part), (first.model, first.part))
 
     def test_diagnostics_are_by_location_only(self):
-        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1, spare=2)))
+        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(respond=_again(1)))
         r = self.ok(fake)
         self.assertRegex(r.stderr, r"draft `variants-01`: dropped 3 texts that match a ledger name .*"
                                    r"\$\.items\[\d+\]\.descriptive\[[12]\]")
@@ -139,7 +169,7 @@ class RepeatedCollisionTest(CollisionCase):
         self.assertIn("6 parts reused from saved drafts", r.stdout)
 
     def test_matches_that_leave_an_item_short_twice_still_exit_4(self):
-        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1)))
+        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(respond=_again(1, repeat=True)))
         r = self.author(fake)
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
         self.assertIn("draft `variants-01` failed its schema again after one re-ask", r.stderr)
@@ -169,7 +199,7 @@ class RepeatedCollisionTest(CollisionCase):
         self.assertNotIn("catalog-01", self.saved_parts())
 
     def test_the_pinned_model_is_still_the_only_one_asked(self):
-        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1, spare=2)))
+        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(respond=_again(1)))
         self.ok(fake)
         self.assertEqual({q.model for q in fake.requests}, {MODEL})
 
@@ -185,35 +215,46 @@ def _bad(base: str, round_: int, k: int) -> str:
 HIGH_SHORT_TERSE, HIGH_SHORT_DESC = 0, 1  # the two items left under their counts, as in the reported run
 
 
-def _high(round_: int):
+def _high_again(request):
+    """The re-ask answer to `_high`: new texts for the two short items only, as many of each kind as asked, with
+    matches among them. Each answer alone leaves its item short; the two together do not."""
+    terse, desc = request.input["items"]
+    assert (terse["need"], desc["need"]) == ({"descriptive": 0, "terse": 3}, {"descriptive": 3, "terse": 0})
+    base_t, base_d = (i["id"].replace("_", " ") for i in (terse, desc))
+    return {"items": [
+        {"id": terse["id"], "descriptive": [], "vendor": [],
+         "terse": [_good(base_t, "tt1"), _bad(base_t, 1, 0), _bad(base_t, 1, 1)]},
+        {"id": desc["id"], "terse": [], "vendor": [],
+         "descriptive": [_good(base_d, "gamma"), _bad(base_d, 1, 0), _bad(base_d, 1, 1)]},
+    ]}
+
+
+def _high(doc):
     """An edit of a valid variants draft that loses many texts to coincidences, as reported (issue #31): six items
     carry matches; two of them (`HIGH_SHORT_*`) are left short by the answer alone. The model words the short
-    items differently in the re-ask, so each answer alone is short but the two together are not."""
-    def edit(doc):
-        chosen = [v for v in doc["items"] if v["terse"]][:6]
-        assert len(chosen) == (6 if round_ == 0 else 2)  # the re-ask asks for the two short items only (issue #36)
-        for n, v in enumerate(chosen):
-            base = v["id"].replace("_", " ")
-            v["vendor"] = []
-            v["terse"] = [_good(base, "tt1"), _good(base, "tt2")]
-            v["descriptive"] = [_good(base, w) for w in ("order", "supply", "restock", "refill", "extra")]
-            if n == HIGH_SHORT_TERSE:
-                v["descriptive"] = v["descriptive"][:4]
-                v["terse"] = [_good(base, f"tt{round_}"), _bad(base, round_, 0)]
-            elif n == HIGH_SHORT_DESC:
-                good = [_good(base, w) for w in (("alpha", "beta") if round_ == 0 else ("gamma",))]
-                v["descriptive"] = good + [_bad(base, round_, k) for k in range(3 - len(good))]
-            else:  # spare capacity of its own, but two of its five texts match
-                v["descriptive"][1] = _bad(base, round_, 1)
-                v["descriptive"][3] = _bad(base, round_, 3)
-    return edit
+    items differently in the re-ask (`_high_again`), so each answer alone is short but the two together are not."""
+    chosen = [v for v in doc["items"] if v["terse"]][:6]
+    assert len(chosen) == 6
+    for n, v in enumerate(chosen):
+        base = v["id"].replace("_", " ")
+        v["vendor"] = []
+        v["terse"] = [_good(base, "tt1"), _good(base, "tt2")]
+        v["descriptive"] = [_good(base, w) for w in ("order", "supply", "restock", "refill", "extra")]
+        if n == HIGH_SHORT_TERSE:
+            v["descriptive"] = v["descriptive"][:4]
+            v["terse"] = [_good(base, "tt0"), _bad(base, 0, 0)]
+        elif n == HIGH_SHORT_DESC:
+            v["descriptive"] = [_good(base, "alpha"), _good(base, "beta"), _bad(base, 0, 0)]
+        else:  # spare capacity of its own, but two of its five texts match
+            v["descriptive"][1] = _bad(base, 0, 1)
+            v["descriptive"][3] = _bad(base, 0, 3)
 
 
 class HighCollisionTest(CollisionCase):
     """Issue #31: a first answer and its one re-ask each lose many texts and two items end up short."""
 
     def script(self):
-        return ScriptedLLM().script("variants-01", Reply(edit=_high(0)), Reply(edit=_high(1)))
+        return ScriptedLLM().script("variants-01", Reply(edit=_high), Reply(respond=_high_again))
 
     def test_the_scenario_matches_the_report(self):
         derived = ledger.derive(self.ws.cwd / "inputs" / "ledgers", self.ws.cwd)
@@ -258,7 +299,7 @@ class HighCollisionTest(CollisionCase):
                 self.assertLessEqual(len(item["have"][kind]) + item["need"][kind], parts.MAX_VARIANTS)
 
     def test_what_is_still_short_after_both_answers_still_exits_4(self):
-        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1)))
+        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(respond=_again(1, repeat=True)))
         r = self.author(fake)
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
         self.assertFalse((self.ws.cwd / "bundles").exists())
@@ -292,7 +333,7 @@ class MixedFailureTest(CollisionCase):
     def script(self):
         # First answer: three coincidences (each item left with 2 of its 3 descriptive texts). Re-ask answer: three more,
         # and two of the items also carry a quantity in meters, leaving each with a single usable text.
-        return ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_mixed(1, bad=(0, 1), spare=0)))
+        return ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(respond=_asked(_mixed(1, bad=(0, 1), spare=0))))
 
     def test_the_reported_failure_now_promotes_an_unreviewed_bundle_with_one_re_ask(self):
         fake = self.script()
@@ -342,7 +383,7 @@ class MixedFailureTest(CollisionCase):
 
         # the first answer's first item loses two texts, so it has one survivor; with one usable text in the re-ask
         # that is two in all, still under the three it needs
-        fake = ScriptedLLM().script("variants-01", Reply(edit=twice), Reply(edit=_mixed(1, bad=(0, 1, 2), spare=0)))
+        fake = ScriptedLLM().script("variants-01", Reply(edit=twice), Reply(respond=_asked(_mixed(1, bad=(0, 1, 2), spare=0))))
         r = self.author(fake)
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
         self.assertIn("needs at least 3", r.stderr)
@@ -354,7 +395,7 @@ class MixedFailureTest(CollisionCase):
             v = [v for v in doc["items"] if v["terse"]][2]
             v["descriptive"][0] = f"{v['id'].replace('_', ' ')} for \u20b1150.00"
 
-        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=priced))
+        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(respond=_asked(priced)))
         r = self.author(fake)
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
         self.assertIn("states a price", r.stderr)

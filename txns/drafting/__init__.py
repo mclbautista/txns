@@ -265,19 +265,21 @@ def _warn_scoped(part: Part, scoped: Targeted, warn: Callable[[str], None]) -> N
 def _integrate(part: Part, response: llm.Response, scoped: Targeted, payload, drafts: Drafts, index: NameIndex,
                warn: Callable[[str], None]) -> tuple[Any, list[str]]:
     """(document, problems) of the answer to the scoped re-ask: the replacements added to the texts kept from the
-    first answer, then checked as any other variants draft (`parts.problems`). Texts that match a ledger name,
-    and texts with invalid pack-size wording (issue #33), are dropped again, by location only."""
+    first answer, then checked as any other variants draft (`parts.problems`). The answer must first be exactly
+    what the re-ask's schema and counts allow (`Targeted.shape_problems`); then texts that match a ledger name,
+    and texts with invalid pack-size wording (issue #33), are dropped from it, by location only."""
     try:
         answer = parse(response.text)
     except (TypeError, ValueError) as exc:
         return None, [f"the response is not one JSON document ({exc})"]
-    answer, dropped = parts.without_collisions(part, answer, index)
-    _warn_dropped(part, dropped, warn)
-    answer, unfit = parts.without_pack_wording(part, answer, drafts)
-    _warn_unfit(part, unfit, warn)
-    bad = parts.leak_problems(answer, index) or scoped.shape_problems(answer)
+    stripped, dropped = parts.without_collisions(part, answer, index)
+    # Fail closed (issue #40): the answer as given must be exactly what was asked, before any text is dropped from it.
+    bad = parts.leak_problems(stripped, index) or scoped.shape_problems(answer)
     if bad:
         return None, bad
+    _warn_dropped(part, dropped, warn)
+    answer, unfit = parts.without_pack_wording(part, stripped, drafts)
+    _warn_unfit(part, unfit, warn)
     document, faults = scoped.integrate(answer)
     return document, faults + parts.problems(part, document, payload, drafts, index)
 

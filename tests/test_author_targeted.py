@@ -13,11 +13,13 @@ writes those.
 
 import json
 import unittest
+from unittest import mock
 
 from tests.llm_fake import Reply, ScriptedLLM, valid_draft
 from tests.test_author_collisions import COLLIDING, CollisionCase
 from tests.test_author_drafts import MODEL
 from txns.drafting import parts
+from txns.drafting import Targeted as _Planned
 from txns.drafting.targeted import Targeted
 
 HIT = "delivery"  # a blocked name in this workspace
@@ -46,23 +48,35 @@ def _concentrated(round_: int, *, lost: int = 4):
 
 
 def _fresh(item: dict, *, hits: int = 2, tag: str = "fresh") -> dict:
-    """What a model writes when asked for `need` new texts of an item: that many, plus `hits` that match."""
+    """What a model writes when asked for `need` new texts of an item: exactly that many, `hits` of them matching."""
     base = _base(item["id"])
     need = item["need"]
+    matching = min(hits, need["descriptive"])
     return {
         "id": item["id"],
-        "descriptive": [f"{base} {tag} {k}" for k in range(need["descriptive"])]
-        + [f"{base} {HIT} r1k{k}" for k in range(hits if need["descriptive"] else 0)],
+        "descriptive": [f"{base} {tag} {k}" for k in range(need["descriptive"] - matching)]
+        + [f"{base} {HIT} r1k{k}" for k in range(matching)],
         "terse": [f"{base} {tag} t{k}" for k in range(need["terse"])],
         "vendor": [],
     }
 
 
-def _model(request, *, fresh=_fresh):
-    """Asked for the whole batch again: the same answer as before. Asked for replacements: writes them."""
+def _drifted(doc):
+    """What a model does when asked for the whole batch twice: items that were fine in the first answer come
+    back changed, here with a price in a text (a fault no repair covers)."""
+    for v in doc["items"]:
+        if v["terse"] and v["id"] not in {a["id"] for a in _affected(doc)}:
+            v["descriptive"][0] = f"{_base(v['id'])} for \u20b1150.00"
+
+
+def _model(request, *, fresh=_fresh, drift=False):
+    """Asked for the whole batch again: the same answer as before (`drift`: with the fine items changed).
+    Asked for replacements: writes them."""
     if not any("need" in item for item in request.input["items"]):
         doc = valid_draft(request)
         _concentrated(1)(doc)
+        if drift:
+            _drifted(doc)
         return doc
     return {"items": [fresh(item) for item in request.input["items"]]}
 
@@ -105,6 +119,27 @@ class ConcentratedCollisionTest(TargetedCase):
         self.assertRegex(r.stdout, r"promoted bundles/draft-[0-9a-f]{12}/ \(reviewed: false\)")
         self.assertEqual(len(list((self.ws.cwd / "bundles").iterdir())), 1)
         self.assertNotIn(f"{HIT} r", (r.stdout + r.stderr + fake.sent_text() + self.everything_written()).casefold())
+
+    def test_a_drifting_whole_batch_answer_sinks_the_ordinary_re_ask_but_not_the_scoped_one(self):
+        # The first answer's other items are valid. A whole-batch second answer changes them (here: a price in a
+        # text), so the draft can only be saved by asking for the short items alone and leaving the rest as they were.
+        drifting = lambda q: _model(q, drift=True)
+        with mock.patch.object(_Planned, "plan", return_value=None):  # the ordinary re-ask of the whole batch
+            fake = _script(drifting)
+            r = self.author(fake)
+            self.assertEqual(r.code, 4, r.stdout + r.stderr)
+            self.assertEqual(len(self.asks(fake)[1].input["items"]), len(self.asks(fake)[0].input["items"]))
+            self.assertNotIn("variants-01", self.saved_parts())
+        self.setUp()
+        fake = _script(drifting)
+        r = self.ok(fake)
+        self.assertEqual(len(self.asks(fake)), 2)
+        self.assertRegex(r.stdout, r"promoted bundles/draft-[0-9a-f]{12}/ \(reviewed: false\)")
+        affected = {v["id"] for v in _affected(valid_draft(self.asks(fake)[0]))}
+        for item_id, v in self.saved_items().items():
+            if item_id not in affected:
+                self.assertEqual(v, self.first_defaults(fake)[item_id], item_id)  # untouched by the drift
+        self.assertNotIn("\u20b1", json.dumps(self.saved("variants-01")))
 
     def test_the_re_ask_names_only_the_deficient_items(self):
         fake = _script()
@@ -241,8 +276,9 @@ class FillingTest(TargetedCase):
 
         def lavish(item):
             base = _base(item["id"])
-            return {"id": item["id"], "vendor": [], "descriptive": [f"{base} new {k}" for k in range(8)],
-                    "terse": [f"{base} nt {k}" for k in range(4)]}
+            need = item["need"]
+            return {"id": item["id"], "vendor": [], "descriptive": [f"{base} new {k}" for k in range(need["descriptive"])],
+                    "terse": [f"{base} nt {k}" for k in range(need["terse"])]}
 
         fake = ScriptedLLM().script("variants-01", Reply(edit=both_short),
                                     Reply(respond=lambda q: _model(q, fresh=lavish)))
@@ -320,17 +356,15 @@ class WhenTheScopedReAskDoesNotApplyTest(TargetedCase):
 class FailClosedTest(TargetedCase):
     def test_a_model_that_repeats_the_kept_texts_leaves_the_items_short(self):
         def repeats(request):
-            doc = valid_draft(request)
-            for v in doc["items"]:
-                v["descriptive"] = [f"{_base(v['id'])} safe order"] * 3
-            return {"items": doc["items"]}
+            return {"items": [{"id": i["id"], "vendor": [], "terse": [],
+                               "descriptive": [f"{_base(i['id'])} safe order"] * i["need"]["descriptive"]}
+                              for i in request.input["items"]]}
 
         self.assert_fails_closed(_script(repeats), shown="needs at least 3")
 
     def test_too_few_safe_texts_in_the_answer_exit_4(self):
         def mostly_hits(item):
-            return _fresh(item, hits=20) | {"descriptive": [f"{_base(item['id'])} fresh 0"]
-                                            + [f"{_base(item['id'])} {HIT} r1k{k}" for k in range(9)]}
+            return _fresh(item, hits=item["need"]["descriptive"] - 1)
 
         fake = _script(lambda q: _model(q, fresh=mostly_hits))
         self.assert_fails_closed(fake, shown="needs at least 3")
@@ -366,6 +400,52 @@ class FailClosedTest(TargetedCase):
                 self.setUp()
                 self.assert_fails_closed(_script(lambda q, b=build: b(_model(q))))
 
+    def test_a_response_that_breaks_the_narrowed_schema_exits_4(self):
+        def first_item(edit):
+            return lambda d: {"items": [edit(d["items"][0]), *d["items"][1:]]}
+
+        def vendor_text(v):
+            return {**v, "vendor": [{"seller": "any-seller", "text": "Any Vendor - extra thing"}]}
+
+        for name, build in {
+            "a vendor-prefixed variant": first_item(vendor_text),
+            "an unrequested kind": first_item(lambda v: {**v, "terse": ["a terse text"]}),
+            "a non-string text": first_item(lambda v: {**v, "descriptive": [7, *v["descriptive"][1:]]}),
+            "a null text": first_item(lambda v: {**v, "descriptive": [None, *v["descriptive"][1:]]}),
+            "an entry that is an object": first_item(lambda v: {**v, "descriptive": [{"text": "x"}, *v["descriptive"][1:]]}),
+            "an item that is not an object": lambda d: {"items": ["text", *d["items"][1:]]},
+            "an item without an id": first_item(lambda v: {k: x for k, x in v.items() if k != "id"}),
+            "an item left out": lambda d: {"items": d["items"][1:]},
+            "an empty list of items": lambda d: {"items": []},
+        }.items():
+            with self.subTest(name):
+                self.setUp()
+                self.assert_fails_closed(_script(lambda q, b=build: b(_model(q))))
+
+    def test_counts_other_than_the_ones_asked_exit_4(self):
+        # Each item still reaches three texts from what was kept and what is left of the answer, but the answer
+        # did not give exactly the number of new texts that was asked for.
+        def skewed(by):
+            def build(d):
+                v = d["items"][0]
+                v["descriptive"] = v["descriptive"][:-1] if by < 0 else [*v["descriptive"], "an extra fresh text"]
+                return d
+            return build
+
+        for name, build in {"underfilled": skewed(-1), "overfilled": skewed(1)}.items():
+            with self.subTest(name):
+                self.setUp()
+                self.assert_fails_closed(_script(lambda q, b=build: b(_model(q))))
+
+    def test_the_schema_errors_are_by_location_only(self):
+        def leaky_key(d):
+            return {"items": [{**d["items"][0], "zz_marker": []}, *d["items"][1:]]}
+
+        r = self.assert_fails_closed(_script(lambda q: leaky_key(_model(q))))
+        error = next(line for line in r.stderr.splitlines() if line.startswith("error:"))
+        self.assertIn("$.items[0]: does not fit the schema", error)
+        self.assertNotIn("zz_marker", error)
+
     def test_not_json_exits_4(self):
         fake = ScriptedLLM().script("variants-01", Reply(edit=_concentrated(0)), Reply(text="not json"))
         self.assert_fails_closed(fake, shown="not one JSON document")
@@ -396,7 +476,7 @@ class FailClosedTest(TargetedCase):
     def test_pack_wording_slips_are_dropped_and_the_rest_used(self):
         def slip(item):
             out = _fresh(item, hits=0)
-            out["descriptive"].insert(0, f"{_base(item['id'])} cable, {{pcs}} meters")
+            out["descriptive"][0] = f"{_base(item['id'])} cable, {{pcs}} meters"
             return out
 
         r = self.ok(_script(lambda q: _model(q, fresh=slip)))
