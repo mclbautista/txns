@@ -30,9 +30,13 @@ storylines, catalog batches, variants batches, vocabulary). For each part:
    variants (two per lost text). An item the re-ask answer still leaves short is filled
    from the first answer's surviving texts (`parts.with_survivors`) and the whole is
    validated. A draft that lost texts this way also drops, from its re-ask answer and from the
-   survivors, the texts whose pack-size wording is invalid (`parts.without_pack_wording`); nothing
-   else is repaired. The leak check, the allowlist and every other rule are unchanged
-   (issues #29, #31, #33).
+   survivors, the texts whose pack-size wording is invalid (`parts.without_pack_wording`). When the
+   merged answer is still invalid, each item's texts are chosen from the two answers
+   (`parts.recover_variants`): the items that lost nothing keep the first answer's texts, the others take
+   the re-ask answer's, and texts that are invalid, repeated, shared with another item or past the
+   12-variant cap are skipped; the result is validated whole and an item the pool cannot complete still
+   fails the draft. Nothing else is repaired. The leak check, the allowlist and every other rule are unchanged
+   (issues #29, #31, #33, #35).
 
 Every response's reported cost is summed (FR-C6). Before each call (a new part
 or a re-ask) the run stops with exit 3 if this run's calls have reached
@@ -152,7 +156,7 @@ def draft_all(
         if bad:
             # FR-C5: one re-ask carrying the validation errors, then exit 4.
             warn(f"draft `{part.name}` failed its schema ({_count(bad)}); asking once more")
-            first, collided = document, bool(dropped)
+            first, collided, first_dropped = document, bool(dropped), dropped
             response = call(part, _reask(request, bad, _sendable(response, document, dropped), index))
             cost += _cost(response)
             document, bad, dropped, unfit = _check(part, response, payload, result.drafts, index, earlier_loss=collided)
@@ -165,6 +169,12 @@ def draft_all(
                 merged = parts.with_survivors(part, first, document, result.drafts)
                 if merged != document and not parts.problems(part, merged, payload, result.drafts, index):
                     document, bad = merged, []
+            if bad and (collided or dropped) and first is not None and document is not None:
+                # Still invalid: choose each item's texts from both answers (issue #35), then validate the whole.
+                built = parts.recover_variants(part, first, first_dropped, document, payload, result.drafts)
+                if built is not None and not parts.problems(part, built[0], payload, result.drafts, index):
+                    document, bad = built[0], []
+                    _warn_rebuilt(part, built[1], warn)
             if bad:
                 raise BundleInvalid(
                     f"draft `{part.name}` failed its schema again after one re-ask ({_count(bad)}): "
@@ -222,6 +232,13 @@ def _warn_unfit(part: Part, unfit: list[int], warn: Callable[[str], None]) -> No
         warn(f"draft `{part.name}`: dropped {len(unfit)} text{'s' if len(unfit) != 1 else ''} with pack-size or "
              f"quantity wording that is not allowed, at these items of the re-ask answer: "
              f"{_shown([f'$.items[{i}]' for i in dict.fromkeys(unfit)])}")
+
+
+def _warn_rebuilt(part: Part, items: list[str], warn: Callable[[str], None]) -> None:
+    if items:
+        warn(f"draft `{part.name}`: chose the texts of {len(items)} item{'s' if len(items) != 1 else ''} from both "
+             f"answers, skipping texts that were repeated, over the cap or invalid: "
+             f"{_shown([f'`{i}`' for i in items])}")
 
 
 def _sendable(response: llm.Response, document: Any, dropped: list) -> str:
