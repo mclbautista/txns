@@ -1,0 +1,106 @@
+{
+  "note": "Committed rule defaults `txns author` copies into every bundle as rules.json (FR-D1). Sources: wayfinder tickets 04 (timing) and 05 (quantity and price), the ledger aggregates in wayfinder/research/02-cost-facts.md, and the engine's documented defaults. Review and edit here; a new `author` run carries the change into the next bundle. Money is int centavos.",
+  "archetypes": {
+    "batch_logged": {
+      "batch_days": [15, 31],
+      "max_per_day": 8,
+      "max_wait_days": 45,
+      "min_gap_days": 1,
+      "min_lag_days": 1,
+      "skip_chance": 0.2
+    },
+    "deposit_balance": {
+      "offset_days": [14, 42]
+    },
+    "fixed_day_subscription": {
+      "anchor_days": [1, 2, 11, 25, 29],
+      "double_share": 0.01,
+      "min_gap_days": 25,
+      "skip_share": 0.01,
+      "slip_days": [1, 2],
+      "slip_share": 0.04
+    },
+    "one_off_big_ticket": {
+      "min_gap_days": 30,
+      "weekday_weights": [17, 17, 17, 17, 17, 0, 0]
+    },
+    "periodic_top_up": {
+      "jitter_days": 2,
+      "min_gap_days": 7
+    },
+    "petty_daily": {
+      "max_per_day": 1,
+      "min_gap_days": 1,
+      "weekday_weights": [17, 17, 17, 17, 17, 9, 5]
+    },
+    "project_burst": {
+      "burst_days": [3, 10],
+      "bursts_per_quarter": 2.0,
+      "quiet_days": 7
+    }
+  },
+  "calendar": {
+    "daily_ceiling": 3.0,
+    "holiday_leak": 0.05,
+    "holy_week_factor": 1.0,
+    "month_end": {
+      "days": 3,
+      "factor": 1.1
+    },
+    "month_weights": {
+      "1": 1.0,
+      "2": 1.0,
+      "3": 1.0,
+      "4": 1.0,
+      "5": 1.0,
+      "6": 1.0,
+      "7": 1.0,
+      "8": 1.0,
+      "9": 1.0,
+      "10": 1.0,
+      "11": 1.0,
+      "12": 1.0
+    },
+    "special_day_factor": 0.5,
+    "weekday_weights": [17, 17, 17, 17, 17, 9, 5]
+  },
+  "messiness": {
+    "backdate_max_days": 3,
+    "backdate_share": 0.02,
+    "date_tail_share": 0.05,
+    "duplicate_max_days": 31,
+    "duplicate_same_text": 0.7,
+    "per_unit_share": 0.05
+  },
+  "pricing": {
+    "quantities": {
+      "big_ticket": [{"qty": 1, "weight": 6}, {"qty": 2, "weight": 1}],
+      "deposit_balance": [{"qty": 1, "weight": 1}],
+      "hardware": [{"qty": 1, "weight": 8}, {"qty": 2, "weight": 3}, {"qty": 4, "weight": 1}],
+      "retail": [{"qty": 1, "weight": 8}, {"qty": 2, "weight": 3}, {"qty": 3, "weight": 1}],
+      "stock": [{"qty": 1, "weight": 6}, {"qty": 2, "weight": 3}, {"qty": 3, "weight": 1}, {"qty": 5, "weight": 1}],
+      "subscription": [{"qty": 1, "weight": 6}, {"qty": 2, "weight": 2}, {"qty": 3, "weight": 1}]
+    },
+    "seller_match_pct": 20,
+    "seller_spread_pct": [3, 6, 9],
+    "steps": {
+      "month_day": "01-01",
+      "pct": {
+        "retail": 5,
+        "subscription": 5
+      }
+    },
+    "tiers": [
+      {"min_qty": 4, "off_pct": 5},
+      {"min_qty": 10, "off_pct": 10}
+    ]
+  },
+  "text": {
+    "default_terse_share": 0.3
+  },
+  "tier_factors": {
+    "high": 2.5,
+    "independent": 0.5,
+    "mid": 1.0
+  }
+}

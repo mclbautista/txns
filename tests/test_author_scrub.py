@@ -145,7 +145,12 @@ class PayloadTest(ScrubCase):
             self.assertNotIn(real, text)
         # The temp folder is ignored by git, so the map is never committed.
         self.assertIn("/.txns/", (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines())
-        self.assertFalse((self.ws.cwd / "bundles").exists())
+        # Nor is it bundled: the promoted bundle holds no map and no real name.
+        bundle_text = "\n".join(p.read_text(encoding="utf-8") for p in (self.ws.cwd / "bundles").rglob("*.json"))
+        self.assertTrue(bundle_text)
+        self.assertNotIn("name-map", bundle_text)
+        for real in names:
+            self.assertNotIn(real.casefold(), bundle_text.casefold())
 
 
 class StableFakesTest(ScrubCase):

@@ -77,6 +77,12 @@ def load(folder: Path) -> Bundle:
     return model.build(folder.name, folder, actual, data)
 
 
+def load_staged(folder: Path) -> Bundle:
+    """Load a bundle folder that is not promoted yet (no hash check): the promotion gates' view of it."""
+    data = model.read_json_files(folder)
+    return model.build(folder.name, folder, hashing.content_hash(folder), data)
+
+
 def promote(staging: Path, root: Path, label: str) -> Path:
     """Hash a staged bundle folder and move it to `root/<label>-<hash12>/`.
 

@@ -1,0 +1,60 @@
+{
+  "format": 1,
+  "note": "Price anchors for catalog items the ledgers never show, transcribed from wayfinder/research/02-cost-facts.md (ticket 02 fact sheet). `txns author` checks these first: a drafted item whose id or text contains one of an entry's keywords (whole words, any case, '-' and spaces alike) takes its prices from the entry. An entry without `unit_prices` (the fact sheet found no price) leaves a matching item out of the bundle and lists it in author's report: add a sourced price here to bring it in. Entries are tried in order, so put specific keywords first. Money is int centavos per rate-card unit (per pack when `pack_pcs` is set), the D-calc figures to the peso: a whole ₱1,000 would be a plug-row tell on a retail item. PHP figures from US list prices use the BSP 2025 average of PHP 57.51 per US$ (fact sheet section 2.1).",
+  "anchors": [
+    {
+      "key": "lto9_cartridge",
+      "keywords": ["lto-9", "lto9", "ultrium 9"],
+      "unit_prices": [529100, 644100],
+      "quantities": [{"qty": 1, "weight": 2}, {"qty": 5, "weight": 3}, {"qty": 10, "weight": 2}, {"qty": 20, "weight": 1}],
+      "confidence": "low",
+      "source": "US list about $92-$112 (tapebackup.org, backupworks.com), D-calc PHP 5,291-6,441 (fact sheet: about 5,300-6,400) before shipping, duty and VAT; no Philippine seller price found; pack sizes 5/10/20 from wayfinder ticket 05 (unsourced)"
+    },
+    {
+      "key": "lto8_cartridge",
+      "keywords": ["lto-8", "lto8", "ultrium 8"],
+      "unit_prices": [402600, 460100],
+      "quantities": [{"qty": 1, "weight": 2}, {"qty": 5, "weight": 3}, {"qty": 10, "weight": 2}, {"qty": 20, "weight": 1}],
+      "confidence": "low",
+      "source": "US list about $70-$80 (tapebackup.org, backupworks.com), D-calc PHP 4,026-4,601 (fact sheet: about 4,000-4,600) before shipping, duty and VAT; no Philippine seller price found; pack sizes 5/10/20 from wayfinder ticket 05 (unsourced)"
+    },
+    {
+      "key": "lto_cartridge",
+      "keywords": ["lto", "ultrium"],
+      "unit_prices": [402600, 460100],
+      "quantities": [{"qty": 1, "weight": 2}, {"qty": 5, "weight": 3}, {"qty": 10, "weight": 2}, {"qty": 20, "weight": 1}],
+      "confidence": "low",
+      "source": "generation not named: priced as LTO-8 (see lto8_cartridge)"
+    },
+    {
+      "key": "mdisc_bdr_dl_25pack",
+      "keywords": ["m-disc", "mdisc"],
+      "unit_prices": [822400],
+      "pack_pcs": 25,
+      "quantities": [{"qty": 1, "weight": 3}, {"qty": 2, "weight": 1}],
+      "confidence": "low",
+      "source": "US only: M-DISC BD-R DL 50GB 25-pack about $143-$270 (bhphotovideo.com, walmart.com), D-calc PHP 8,224 at the low end; no Philippine price found"
+    },
+    {
+      "key": "bdr_25gb_25pack",
+      "keywords": ["bd-r", "bdr", "blu-ray", "bluray"],
+      "unit_prices": [442800],
+      "pack_pcs": 25,
+      "quantities": [{"qty": 1, "weight": 3}, {"qty": 2, "weight": 1}],
+      "confidence": "low",
+      "source": "US only: BD-R 25GB 25-pack about $77 (walmart.com), D-calc PHP 4,428; no Philippine price found"
+    },
+    {"key": "lto_cleaning_cartridge", "keywords": ["cleaning cartridge", "cleaning tape"], "source": "fact sheet 7: archive addition, no price found"},
+    {"key": "barcode_labels", "keywords": ["barcode"], "source": "fact sheet 7: archive addition, no price found"},
+    {"key": "tape_cases", "keywords": ["tape case", "tape cases"], "source": "fact sheet 7: archive addition, no price found"},
+    {"key": "nas_raid_enclosure", "keywords": ["nas", "raid"], "source": "fact sheet 7: archive addition, no price found"},
+    {"key": "humidity_logger", "keywords": ["humidity"], "source": "fact sheet 7: archive addition, no price found"},
+    {"key": "carry_cases", "keywords": ["carry case", "carrying case"], "source": "fact sheet 7: delivery-season addition, no price found"},
+    {"key": "flights", "keywords": ["airfare", "flight", "flights", "plane ticket"], "source": "fact sheet 7: festival-trip addition, no price found"},
+    {"key": "catering", "keywords": ["catering", "caterer"], "source": "fact sheet 7 and 8.5: catering by head count, no quote found"},
+    {"key": "ups_batteries", "keywords": ["ups battery", "ups batteries"], "source": "fact sheet 7: studio-upkeep addition, no price found"},
+    {"key": "acoustic_foam", "keywords": ["acoustic foam", "acoustic panel", "acoustic panels"], "source": "fact sheet 7: studio-upkeep addition, no price found"},
+    {"key": "extinguisher_refill", "keywords": ["extinguisher"], "source": "fact sheet 7: studio-upkeep addition, no price found"},
+    {"key": "domain_vpn", "keywords": ["domain", "vpn"], "source": "fact sheet 7: subscription-stack addition, no price found"}
+  ]
+}
