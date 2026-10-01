@@ -98,7 +98,9 @@ class ReaskTest(DraftCase):
         self.assertFalse((self.ws.cwd / "bundles").exists())
 
     def test_a_re_ask_never_sends_back_a_ledger_name(self):
-        leaky = Reply(edit=lambda d: d["items"][0]["descriptive"].append("Coffee run with Swiftlane Couriers"))
+        # A name outside the variant texts (here an extra key) is not dropped locally (issue #29):
+        # a name in a text is, and its re-ask is covered by tests/test_author_collisions.py.
+        leaky = Reply(edit=lambda d: d["items"][0].update({"Coffee run with Swiftlane Couriers": 1}))
         fake = ScriptedLLM().script("variants-01", leaky)
         self.ok(fake)
         again = fake.requests[fake.parts().index("variants-01") + 1]

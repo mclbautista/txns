@@ -43,7 +43,7 @@ from txns.bundle.model import PRICE_CLASSES
 from txns.bundle.prices import TIERED_GOODS
 from txns.drafting.jsonschema import errors as schema_errors
 from txns.errors import BundleInvalid
-from txns.privacy import NameIndex, find_in_object
+from txns.privacy import LeakDetector, NameIndex, find_in_object
 from txns.writer import text_violations
 
 MAX_BATCH_CATEGORIES = 6
@@ -52,6 +52,7 @@ MAX_ITEMS_PER_CATEGORY = 12
 MIN_DESCRIPTIVE = 3  # plain plus vendor-prefixed (same rule as txns.bundle.text_rules)
 MIN_TERSE = 2
 MAX_VARIANTS = 12
+COLLISION_SPARE = 2  # extra variants asked of an item that lost one to a name coincidence
 SEPARATOR = " - "
 PCS = "{pcs}"  # pack-size placeholder, filled by the bundle (never by the LLM)
 EXAMPLE_TEXTS = 40  # item-text patterns shown to the vocabulary call
@@ -326,6 +327,68 @@ def _forbidden_keys(v: Any, path: str = "$") -> list[str]:
     elif isinstance(v, list):
         for i, x in enumerate(v):
             out.extend(_forbidden_keys(x, f"{path}[{i}]"))
+    return out
+
+
+def without_collisions(part: Part, document: Any, index: NameIndex) -> tuple[Any, list[tuple[int, str, int]]]:
+    """A variants answer minus the texts that match a ledger name, and which they were.
+
+        cleaned, dropped = without_collisions(part, document, index)   # dropped: [(item, list, position), ...]
+
+    The model is never shown a ledger name, so a match in its answer is a coincidence: a plain
+    word the books also use as a name (a ledger description with no " - " is read as a vendor
+    name). Dropping the one text keeps the rest of an otherwise valid answer; nothing about
+    the check is relaxed, because `problems` still leak-checks what remains and still applies
+    every count, uniqueness and text rule (an item left short is a problem like any other).
+    Only the texts of variants answers are dropped: a name anywhere else fails the draft.
+    Positions are those of the answer as the model gave it.
+    """
+    items = document.get("items") if part.kind == "variants" and isinstance(document, dict) else None
+    if not isinstance(items, list):
+        return document, []
+    detector = LeakDetector(index)
+    dropped: list[tuple[int, str, int]] = []
+    cleaned = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            cleaned.append(item)
+            continue
+        item = dict(item)
+        for kind in ("descriptive", "terse", "vendor"):
+            if not isinstance(item.get(kind), list):
+                continue
+            kept = []
+            for j, entry in enumerate(item[kind]):
+                text = entry.get("text") if isinstance(entry, dict) else entry
+                if isinstance(text, str) and detector.leaks(text):
+                    dropped.append((i, kind, j))
+                else:
+                    kept.append(entry)
+            item[kind] = kept
+        cleaned.append(item)
+    return ({**document, "items": cleaned}, dropped) if dropped else (document, [])
+
+
+def collision_where(dropped: list[tuple[int, str, int]]) -> list[str]:
+    """JSON paths of the dropped texts in the answer as given (location only)."""
+    return [f"$.items[{i}].{kind}[{j}]" for i, kind, j in dropped]
+
+
+def collision_problems(document: Any, dropped: list[tuple[int, str, int]]) -> list[str]:
+    """Re-ask lines for the items that lost texts, by item location and id only (never the text)."""
+    counts: dict[int, int] = {}
+    for i, _, _ in dropped:
+        counts[i] = counts.get(i, 0) + 1
+    out = []
+    for i, n in counts.items():
+        name = document["items"][i].get("id")
+        label = f" (`{name}`)" if isinstance(name, str) and re.fullmatch(_ID["pattern"], name) else ""
+        out.append(
+            f"$.items[{i}]{label}: {n} variant text{'s' if n != 1 else ''} removed because the wording "
+            "coincides with a business name from the books; word this item differently, and give it "
+            f"{COLLISION_SPARE} more descriptive variants than it needs (and {COLLISION_SPARE} more terse ones "
+            "if it has terse variants) so one more coincidence can be dropped"
+        )
     return out
 
 

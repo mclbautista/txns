@@ -187,7 +187,9 @@ class RequestPrivacyTest(DraftCase):
         self.assertNotIn("swiftlane", (r.stdout + r.stderr).casefold())
 
     def test_a_draft_that_carries_a_ledger_name_fails(self):
-        leaky = Reply(edit=lambda d: d["items"][0]["descriptive"].append("Coffee run with Swiftlane Couriers"))
+        # A name outside the variant texts (here an extra key) is not dropped locally (issue #29):
+        # a name in a text is, and is covered by tests/test_author_collisions.py.
+        leaky = Reply(edit=lambda d: d["items"][0].update({"Coffee run with Swiftlane Couriers": 1}))
         fake = ScriptedLLM().script("variants-01", leaky, leaky)
         r = self.author(fake)
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
