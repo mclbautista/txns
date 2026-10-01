@@ -11,11 +11,13 @@ descriptive variants) each carry one text that matches, at descriptive[2], [1] a
 reported failure.
 """
 
+import re
 import unittest
 
 from tests.llm_fake import Reply, ScriptedLLM
 from tests.test_author_drafts import MODEL, DraftCase
 from txns import ledger
+from txns.drafting import parts
 from txns.privacy import NameIndex, load_allowlist
 from txns.privacy.leaks import LeakDetector
 
@@ -168,6 +170,101 @@ class RepeatedCollisionTest(CollisionCase):
         fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1, spare=2)))
         self.ok(fake)
         self.assertEqual({q.model for q in fake.requests}, {MODEL})
+
+
+def _good(base: str, word: str) -> str:
+    return f"{base} {word}"
+
+
+def _bad(base: str, round_: int, k: int) -> str:
+    return f"{base} delivery r{round_}k{k}"  # "delivery" is a blocked name in this workspace
+
+
+HIGH_SHORT_TERSE, HIGH_SHORT_DESC = 0, 1  # the two items left under their counts, as in the reported run
+
+
+def _high(round_: int):
+    """An edit of a valid variants draft that loses many texts to coincidences, as reported (issue #31): six items
+    carry matches; two of them (`HIGH_SHORT_*`) are left short by the answer alone. The model words the short
+    items differently in the re-ask, so each answer alone is short but the two together are not."""
+    def edit(doc):
+        chosen = [v for v in doc["items"] if v["terse"]][:6]
+        assert len(chosen) == 6
+        for n, v in enumerate(chosen):
+            base = v["id"].replace("_", " ")
+            v["vendor"] = []
+            v["terse"] = [_good(base, "tt1"), _good(base, "tt2")]
+            v["descriptive"] = [_good(base, w) for w in ("order", "supply", "restock", "refill", "extra")]
+            if n == HIGH_SHORT_TERSE:
+                v["descriptive"] = v["descriptive"][:4]
+                v["terse"] = [_good(base, f"tt{round_}"), _bad(base, round_, 0)]
+            elif n == HIGH_SHORT_DESC:
+                good = [_good(base, w) for w in (("alpha", "beta") if round_ == 0 else ("gamma",))]
+                v["descriptive"] = good + [_bad(base, round_, k) for k in range(3 - len(good))]
+            else:  # spare capacity of its own, but two of its five texts match
+                v["descriptive"][1] = _bad(base, round_, 1)
+                v["descriptive"][3] = _bad(base, round_, 3)
+    return edit
+
+
+class HighCollisionTest(CollisionCase):
+    """Issue #31: a first answer and its one re-ask each lose many texts and two items end up short."""
+
+    def script(self):
+        return ScriptedLLM().script("variants-01", Reply(edit=_high(0)), Reply(edit=_high(1)))
+
+    def test_the_scenario_matches_the_report(self):
+        derived = ledger.derive(self.ws.cwd / "inputs" / "ledgers", self.ws.cwd)
+        detector = LeakDetector(NameIndex(derived.ledgers, load_allowlist(self.ws.cwd)))
+        self.assertTrue(detector.leaks(_bad("printer paper", 0, 0)))
+        self.assertFalse(detector.leaks(_good("printer paper", "alpha")))
+
+    def test_high_collision_recovery_promotes_an_unreviewed_bundle_with_one_re_ask(self):
+        fake = self.script()
+        r = self.ok(fake)
+        self.assertEqual(fake.parts().count("variants-01"), 2)  # the existing one re-ask, no more
+        self.assertRegex(r.stdout, r"promoted bundles/draft-[0-9a-f]{12}/ \(reviewed: false\)")
+        self.assertEqual(len(list((self.ws.cwd / "bundles").iterdir())), 1)
+        self.assertNotIn("delivery r", (r.stdout + r.stderr + fake.sent_text() + self.everything_written()).casefold())
+
+    def test_the_two_short_items_are_restored_from_texts_that_survived(self):
+        self.ok(self.script())
+        saved = {v["id"]: v for v in self.saved("variants-01")["draft"]["items"]}
+        chosen = list(saved.values())[:6]  # `_high` edits the first six items that have terse texts
+        self.assertTrue(all(v["terse"] for v in chosen))
+        terse, desc = chosen[HIGH_SHORT_TERSE], chosen[HIGH_SHORT_DESC]
+        self.assertGreaterEqual(len(terse["terse"]), 2)
+        self.assertGreaterEqual(len(desc["descriptive"]) + len(desc["vendor"]), 3)
+        for v in chosen:
+            self.assertFalse(any("delivery r" in t for t in v["descriptive"] + v["terse"]))
+
+    def test_the_surplus_asked_grows_with_what_an_item_lost(self):
+        fake = self.script()
+        self.ok(fake)
+        _, again = [q for q in fake.requests if q.part == "variants-01"]
+        lost_two = [p for p in again.problems if "2 variant texts removed" in p]
+        lost_one = [p for p in again.problems if "1 variant text removed" in p]
+        self.assertEqual((len(lost_two), len(lost_one)), (4, 2))
+        for p in lost_two:
+            self.assertIn("4 more descriptive variants", p)  # twice what it lost, never less than the old spare
+        for p in lost_one:
+            self.assertRegex(p, r"2 more (descriptive|terse) variants")
+        self.assertNotIn("delivery r", " ".join(again.problems) + (again.previous or ""))
+
+    def test_a_surplus_never_asks_past_the_most_variants_an_item_may_have(self):
+        fake = self.script()
+        self.ok(fake)
+        _, again = [q for q in fake.requests if q.part == "variants-01"]
+        for p in again.problems:
+            for n, kind in re.findall(r"(\d+) more (descriptive|terse)", p):
+                need = parts.MIN_DESCRIPTIVE if kind == "descriptive" else parts.MIN_TERSE
+                self.assertLessEqual(int(n) + need, parts.MAX_VARIANTS)
+
+    def test_what_is_still_short_after_both_answers_still_exits_4(self):
+        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1)))
+        r = self.author(fake)
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertFalse((self.ws.cwd / "bundles").exists())
 
 
 if __name__ == "__main__":
