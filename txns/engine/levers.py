@@ -14,7 +14,9 @@ Each archetype declares its levers when it registers:
 
 - `rate_params`: the item params that set how often the archetype occurs, with
   their defaults. The occurrence lever multiplies them. Empty = the archetype
-  has no occurrence lever (fixed schedules, one-offs, deposit/balance pairs).
+  has no occurrence lever (fixed schedules). One-offs, deposit/balance pairs
+  and party days declare theirs, but only retail items use them: big-ticket
+  items grow by scope.
 - `quantities`: whether the quantity lever applies. Which calibration stage
   turns it depends on the item's price class: subscription = seats (stage 2),
   retail = quantities (stage 3), big_ticket = scope (stage 4).

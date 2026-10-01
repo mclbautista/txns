@@ -14,6 +14,8 @@ fails with no duplicates at all. With no ledger figure the check passes.
 Rows tagged "batch" (batch-logged items, entered together on a batch day) count
 as rows but never form a group: several same-price rows of one rate card on one
 batch day are the batch, not a double entry, and the gap rules cap them.
+Rows tagged "party" (party-day items) likewise: several rows of one item on a
+party day are the party, capped by the gap rule (FR-E5).
 """
 
 from collections import Counter
@@ -21,7 +23,7 @@ from collections import Counter
 from txns.scorecard import reference as ref
 from txns.scorecard.registry import PASS, CheckResult, ScoreContext, check, relative_noisy, result, share_se
 
-GROUPLESS_TAGS = ("batch",)
+GROUPLESS_TAGS = ("batch", "party")
 
 
 def _pct(v: float) -> str:
