@@ -26,6 +26,12 @@ Bundle files (all JSON, top level of the bundle folder):
 Catalog `pack_pcs` (stock items): pieces per pack, for derived per-unit rows
 (`txns.bundle.packs`).
 
+Catalog `round_figures` (bool): the item is approved for round-figure amounts
+(FR-F6). Default: true for big-ticket items, false otherwise. Event items
+(venue deposits, prize tiers) may set it; the rules are in `txns.bundle.events`,
+which also checks deposit/balance links and which archetypes may have more
+than one row a day.
+
 Any other *.json file is loaded into `Bundle.data[<stem>]` untouched, so a new
 file can be added to the bundle without changing this loader. To add a field
 to an item, read it from `Item.params` (archetype parameters) or `Item.raw`
@@ -58,11 +64,11 @@ REQUIRED_FILES = (
 PRICE_CLASSES = ("subscription", "retail", "big_ticket")
 # Minimum days between an item's rows when neither the item's params nor
 # rules.json `archetypes.<name>.min_gap_days` set one (FR-E5); other archetypes 1.
-DEFAULT_MIN_GAP_DAYS = {"fixed_day_subscription": 25, "periodic_top_up": 7}
+DEFAULT_MIN_GAP_DAYS = {"fixed_day_subscription": 25, "periodic_top_up": 7, "one_off_big_ticket": 30}
 # Rows of one item on one day when neither the item's params nor rules.json
-# `archetypes.<name>.max_per_day` set one (FR-E5: only party-day and
+# `archetypes.<name>.max_per_day` set one (FR-E5: only party items and
 # batch-logged items may exceed one, capped by count); other archetypes 1.
-DEFAULT_MAX_PER_DAY = {"batch_logged": 8}
+DEFAULT_MAX_PER_DAY = {"batch_logged": 8}  # party items (`txns.bundle.events`): events.PARTY_MAX_PER_DAY
 
 
 @dataclass(frozen=True)
@@ -165,11 +171,16 @@ class Item:
 
     @property
     def round_figures_approved(self) -> bool:
-        """Only approved big-ticket items may carry round-thousand amounts (FR-F6).
+        """Only approved items may carry round-thousand amounts (FR-F6).
 
-        The one place that decides it; the drawer and the plug-row check both ask here.
+        Catalog `round_figures` when set, else big-ticket items only. Which items
+        may set it is checked at load (`txns.bundle.events`). The one place that
+        decides it; the drawer and the plug-row check both ask here.
         """
-        return self.price_class == "big_ticket"
+        flag = self.raw.get("round_figures")
+        if flag is None:
+            return self.price_class == "big_ticket"
+        return flag is True
 
 
 @dataclass(frozen=True)
@@ -204,11 +215,16 @@ class Bundle:
         """(max rows per day, minimum gap in days) for an item (FR-E5).
 
         Per-item `params` override the archetype's rules; defaults
-        `DEFAULT_MAX_PER_DAY` (batch-logged 8, others 1 row a day) and
-        `DEFAULT_MIN_GAP_DAYS` (subscription 25, top-up 7, others 1).
+        `DEFAULT_MAX_PER_DAY` (batch-logged 8, party items 4, others 1 row a
+        day) and `DEFAULT_MIN_GAP_DAYS` (subscription 25, top-up 7, one-off big
+        ticket 30, others 1).
         """
+        from txns.bundle import events  # party items: project bursts of a party storyline
+
         rules = self.archetype_rules(item.archetype)
         default_max = DEFAULT_MAX_PER_DAY.get(item.archetype, 1)
+        if events.is_party_item(self, item):
+            default_max = events.PARTY_MAX_PER_DAY
         max_per_day = item.params.get("max_per_day", rules.get("max_per_day", default_max))
         default_gap = DEFAULT_MIN_GAP_DAYS.get(item.archetype, 1)
         min_gap = item.params.get("min_gap_days", rules.get("min_gap_days", default_gap))
@@ -237,7 +253,7 @@ def read_json_files(folder: Path) -> dict[str, Any]:
 
 def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) -> Bundle:
     """Structural checks that `generate` relies on; failures exit 4."""
-    from txns.bundle import packs, prices, vocabulary  # item rules; prices imports this module
+    from txns.bundle import events, packs, prices, vocabulary  # item rules; prices imports this module
     from txns.bundle import storylines as storyline_rules
 
     storylines = data["storylines"]
@@ -302,7 +318,7 @@ def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) ->
         calendar = holidays.parse(data["holidays"])
     except holidays.CalendarInvalid as exc:
         raise _bad(str(exc)) from None
-    return Bundle(
+    bundle = Bundle(
         id=bundle_id,
         path=folder,
         hash=full_hash,
@@ -314,3 +330,5 @@ def build(bundle_id: str, folder: Path, full_hash: str, data: dict[str, Any]) ->
         data=MappingProxyType(data),
         calendar=calendar,
     )
+    events.check(bundle)
+    return bundle

@@ -19,14 +19,26 @@ Levers:        occurrences via burst_scale and per_burst (more bursts, and more 
 
 One uniform draw per period day on the item's `dates` stream whatever the
 scale, so a larger scale only adds days (up to the gap rules).
+
+Party storylines (FR-E5 party-day exception, `txns.bundle.events`): in a
+storyline with `parties_per_quarter`, a burst is one party day
+(`txns.engine.parties`) and the item may have several rows on it, up to its cap
+`max_per_day` (gap rule, default 4): each of the cap's slots is filled with
+chance `per_burst / cap`, so a party carries `per_burst` rows of the item on
+average and never more than the cap. `burst_scale` scales the party rate.
+Those rows are tagged "party" as well: the daily ceiling neither counts nor
+moves them, the messiness stage never re-dates them into duplicates, and the
+duplicates check does not group them (same-price rows of one party are the
+party). `max_per_day` draws per period day, whatever the scale.
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
 
+from txns.bundle import events
 from txns.engine import bursts as storyline_bursts
-from txns.engine import calendar
+from txns.engine import calendar, parties
 from txns.engine.archetypes import register
 from txns.engine.levers import Levers
 from txns.engine.rows import Occurrence
@@ -49,6 +61,8 @@ def _param(item, name: str, default: float) -> float:
 def plan(item, ctx, stream):
     per_burst = _param(item, "per_burst", DEFAULT_PER_BURST)
     scale = _param(item, "burst_scale", 1.0)
+    if events.is_party_item(ctx.bundle, item):
+        return _party_plan(item, ctx, stream, per_burst, scale)
     spec = storyline_bursts.spec(ctx.bundle, item.storyline)
     windows = storyline_bursts.bursts(ctx, item.storyline, scale)
     shape = replace(calendar.day_shape(ctx, item), months=(1.0,) * 12)
@@ -71,5 +85,30 @@ def plan(item, ctx, stream):
             continue
         if u < min(1.0, per_day * shape.weight(day)):
             out.append(Occurrence(item.id, item.storyline, day, TAGS))
+            last = day
+    return out
+
+
+PARTY_TAGS = ("burst", "party")
+
+
+def _party_plan(item, ctx, stream, per_burst: float, scale: float):
+    """A party storyline's item: up to its cap of rows on each party day (see the module docstring)."""
+    cap, min_gap = ctx.bundle.gap_rules(item)
+    days = set(parties.party_days(ctx, item.storyline, scale))
+    p = min(1.0, per_burst / cap)
+    weekdays_only = item.price_class == "big_ticket"
+    period = ctx.config.period
+    out = []
+    last = None
+    for day in calendar.days(period.start, period.end):
+        draws = [stream.uniform() for _ in range(cap)]  # always `cap` draws a day
+        if day not in days or (weekdays_only and day.weekday() >= 5):
+            continue
+        if last is not None and (day - last).days < min_gap:
+            continue
+        n = sum(1 for u in draws if u < p)
+        out.extend(Occurrence(item.id, item.storyline, day, PARTY_TAGS) for _ in range(n))
+        if n:
             last = day
     return out

@@ -18,7 +18,8 @@ JSON strings such as "2.5") and `goods` ("stock" or "hardware": may list tiers).
 Rules (a bundle that breaks one exits 4, so `generate` never has to guess):
 
 - every unit price is positive integer centavos with tidy cents (.00, .50, .75);
-- price points: subscription 1, big-ticket 1, retail at most 4;
+- price points: subscription 1, big-ticket 1, retail at most 4; a deposit_balance
+  item (any class) at most 2: its deposit figure, then its balance figure;
 - volume tiers: only on stock or hardware items, at most 2 per point (3 tiers
   counting the base price), `min_qty` ascending from 2, each tier cheaper than
   the one below it. The tier price is looked up, never computed;
@@ -46,6 +47,7 @@ from txns.money import format_centavos, is_tidy_cents
 TIERED_GOODS = ("stock", "hardware")
 MAX_TIERS = 2  # tier entries per point besides the base price (FR-F4: up to 3 tiers)
 MAX_POINTS = {"subscription": 1, "big_ticket": 1, "retail": 4}  # FR-F1; retail's minimum of 2 is the author gate's
+DEPOSIT_BALANCE_POINTS = 2  # any class: point 0 the deposit, the last point the balance (FR-E4)
 STEP_MIN_PCT, STEP_MAX_PCT = 3, 15  # FR-F2, retail and subscription steps
 STEP_BOUNDED_CLASSES = ("retail", "subscription")
 MAX_QTY_PLACES = 3
@@ -180,6 +182,8 @@ def parse_card(where: str, entry: dict[str, Any], card: dict[str, Any]) -> RateC
     if not isinstance(raw_points, list) or not raw_points:
         raise _bad(where, "rate card needs price points with positive integer `unit_price` (centavos)")
     most = MAX_POINTS.get(price_class, len(raw_points))
+    if entry.get("archetype") == "deposit_balance":
+        most = DEPOSIT_BALANCE_POINTS  # the deposit figure and the balance figure (txns.bundle.events)
     if len(raw_points) > most:
         raise _bad(where, f"a {price_class} item has at most {most} price point(s), got {len(raw_points)}")
     points = tuple(_point(where, p, tiered) for p in raw_points)

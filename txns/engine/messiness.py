@@ -6,8 +6,8 @@ down). In order:
 
 1. Duplicates (FR-H3): same-day, same-item, same-amount groups at the ledger's
    duplicate-group rate (groups / rows). Groups the plan already has count
-   toward it; batch rows never form one (the scorecard's `duplicates` check
-   counts a batch day's same-price rows as the batch). A group is made from two
+   toward it; batch and party rows never form one (the scorecard's `duplicates`
+   check counts a batch day's or a party's same-price rows as the batch or party). A group is made from two
    rows of one item with the same price point and qty: the second is re-dated
    onto the first one's day and tagged "duplicate" (the batch entry of one
    receipt twice), so the total and the row count stay as calibrated. It keeps
@@ -64,6 +64,7 @@ DEFAULTS: dict[str, float] = {
     "backdate_max_days": 3,
 }
 DUPLICATE, PER_UNIT, BATCH = "duplicate", "per_unit", "batch"
+GROUPLESS = (BATCH, "party")  # rows that never form a duplicate group (scorecard `duplicates`)
 
 
 def rules(bundle) -> Mapping[str, Any]:
@@ -122,7 +123,7 @@ def duplicates(ctx: EngineContext, rows: list[Row]) -> list[Row]:
         return rows
     by_item = _by_item(rows)
     natural = {
-        k: sum(1 for c in _groups(rows, [i for i in idx if BATCH not in rows[i].tags]).values() if c > 1)
+        k: sum(1 for c in _groups(rows, [i for i in idx if not any(t in GROUPLESS for t in rows[i].tags)]).values() if c > 1)
         for k, idx in by_item.items()
     }
     eligible = {

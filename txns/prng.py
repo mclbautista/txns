@@ -86,6 +86,23 @@ class Stream:
             r -= w
         raise AssertionError("unreachable")
 
+    def quantile_index(self, weights: Sequence[int]) -> int:
+        """Index drawn with probability weight/sum by inverse CDF on one 64-bit draw.
+
+        Unlike `weighted_index`, the index is monotone in the weights: shifting
+        weight toward later indexes (a larger-quantity tilt) never gives an
+        earlier index for the same draw, so a scaled plan grows row by row.
+        """
+        total = sum(weights)
+        if total <= 0:
+            raise ValueError("quantile_index() needs a positive total weight")
+        r = (self.next_u64() * total) >> 64  # uniform in [0, total), exact integer arithmetic
+        for i, w in enumerate(weights):
+            if r < w:
+                return i
+            r -= w
+        raise AssertionError("unreachable")
+
     def shuffle(self, items: list) -> None:
         """In-place Fisher-Yates."""
         for i in range(len(items) - 1, 0, -1):

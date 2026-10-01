@@ -21,6 +21,8 @@ class Occurrence:
     date: date
     tags: tuple[str, ...] = ()  # e.g. ("deposit",), ("batch",); free-form per archetype
     original_date: date | None = None  # batch-logged: the day it happened; `date` is the batch day
+    parent_date: date | None = None  # deposit/balance: a balance's deposit day (the drawer matches its qty)
+    price_point: int | None = None  # a fixed rate-card point (deposit 0, balance last); None = drawn
 
 
 @dataclass(frozen=True)

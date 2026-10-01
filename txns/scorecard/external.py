@@ -7,9 +7,12 @@ row-level checks (format, plug rows) still apply.
 
 A CSV carries no engine tags, so the reader tags rows the way the engine did,
 from what a reviewer can see (`infer_tags`): rows of batch-logged items
-"batch"; any later row of a same-day, same-item, same-amount group of another
-item "duplicate"; derived per-unit rows (`bundle.packs.is_per_unit`)
-"per_unit". Scoring a generated CSV then gives the report `generate` gave.
+"batch"; rows of party items (`bundle.events.is_party_item`) "party"; rows of
+deposit/balance items "deposit" or "balance" when the price tells (the card's
+first point is the deposit figure, its last the balance figure); any later row
+of a same-day, same-item, same-amount group of another item "duplicate";
+derived per-unit rows (`bundle.packs.is_per_unit`) "per_unit". Scoring a
+generated CSV then gives the report `generate` gave.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from decimal import Decimal, InvalidOperation
 
 from txns.bundle.model import Bundle
 from txns.engine.rows import Row
-from txns.bundle import packs
+from txns.bundle import events, packs
 from txns.scorecard.itemmap import TextMatcher
 from txns.writer import HEADER
 
@@ -84,6 +87,19 @@ def read_csv(data: str | bytes, bundle: Bundle) -> list[Row]:
 BATCH_ARCHETYPE = "batch_logged"
 
 
+def _pair_role(item, row: Row) -> str | None:
+    """"deposit" or "balance" for a deposit/balance row whose price names its point, else None."""
+    if item.archetype != events.DEPOSIT_BALANCE:
+        return None
+    points = item.points_on(row.date)
+    deposit, balance = set(points[0].figures), set(points[-1].figures)
+    if row.unit_price in deposit and row.unit_price not in balance:
+        return "deposit"
+    if row.unit_price in balance and row.unit_price not in deposit:
+        return "balance"
+    return None
+
+
 def infer_tags(rows: list[Row], bundle: Bundle) -> list[Row]:
     seen: set[tuple] = set()
     out = []
@@ -95,11 +111,16 @@ def infer_tags(rows: list[Row], bundle: Bundle) -> list[Row]:
         tags: list[str] = []
         if item.archetype == BATCH_ARCHETYPE:
             tags.append("batch")
+        elif events.is_party_item(bundle, item):
+            tags.append("party")
         else:
             key = (row.date, row.item_id, row.amount)
             if key in seen:
                 tags.append("duplicate")
             seen.add(key)
+            role = _pair_role(item, row)
+            if role:
+                tags.append(role)
         if packs.is_per_unit(item, row):
             tags.append("per_unit")
         out.append(replace(row, tags=tuple(tags)) if tags else row)

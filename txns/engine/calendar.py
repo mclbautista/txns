@@ -240,6 +240,8 @@ def _target(ctx, item, shape: DayShape, day: date, mine: Counter, per_day: Count
                 continue
             if shape.weekday[cand.weekday()] <= 0 or shape.calendar.get(cand) is not None:
                 continue
+            if item.price_class == "big_ticket" and cand.weekday() >= 5:  # FR-E6
+                continue
             if mine[cand] >= max_per_day:
                 continue
             if all(d == cand or abs((cand - d).days) >= min_gap for d in others):

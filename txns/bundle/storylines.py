@@ -4,13 +4,17 @@
             "month_weights"?: {"1".."12": factor >= 0},   missing months 1.0
             "burst_days"?: [min, max],                    days a project burst lasts, 1 <= min <= max <= 92
             "bursts_per_quarter"?: number >= 0,           expected bursts in a quarter of weight-1.0 months
-            "quiet_days"?: int >= 0}}                     least quiet days between one burst's end and the next start
+            "quiet_days"?: int >= 0,                      least quiet days between one burst's end and the next start
+            "parties_per_quarter"?: number >= 0}}         expected party days in a quarter of weight-1.0 months
 
 `month_weights` shape every item of the storyline (`txns.engine.calendar.day_shape`)
 and the start of its bursts. The burst keys are read by project-burst items
 (`txns.engine.bursts`); a storyline without them falls back to
 `rules.archetypes.project_burst`, then the code defaults in that module. The same
 keys are accepted (and checked) in `rules.archetypes.project_burst`.
+`parties_per_quarter` makes the storyline a party storyline (`txns.bundle.events`):
+its project-burst items occur on its party days (`txns.engine.parties`), several
+rows of an item a day up to the item's cap, instead of in bursts.
 
 A seasonal storyline (parties, a festival trip) gives its off-season months
 weight 0; petty spend and the subscription stack leave `month_weights` out and
@@ -58,6 +62,9 @@ def check_settings(where: str, entry: Mapping[str, Any]) -> None:
     per_quarter = entry.get("bursts_per_quarter")
     if per_quarter is not None and (not _is_number(per_quarter) or per_quarter < 0):
         raise _bad(where, "`bursts_per_quarter` must be a number >= 0")
+    parties = entry.get("parties_per_quarter")
+    if parties is not None and (not _is_number(parties) or parties < 0):
+        raise _bad(where, "`parties_per_quarter` must be a number >= 0")
     quiet = entry.get("quiet_days")
     if quiet is not None and (not isinstance(quiet, int) or isinstance(quiet, bool) or quiet < 0):
         raise _bad(where, "`quiet_days` must be a whole number of days >= 0")
