@@ -56,6 +56,7 @@ class Request:
     # A re-ask (FR-C5): what was wrong with the first answer, and that answer when it may be sent back.
     problems: tuple[str, ...] = ()
     previous: str | None = None
+    again: bool = False  # the one re-ask of a part, whether it carries problems (FR-C5) or asks for replacements only
 
     def content(self) -> dict[str, Any]:
         """Everything the call sends besides the model slug (what the leak check reads)."""
@@ -71,7 +72,7 @@ class Request:
 
     def reask(self, problems: list[str], previous: str | None) -> "Request":
         return Request(self.part, self.model, self.instructions, self.input, self.schema,
-                       tuple(problems), previous)
+                       tuple(problems), previous, True)
 
     def messages(self) -> list[dict[str, str]]:
         """The chat messages this request sends: system (instructions + schema), user (input), re-ask."""

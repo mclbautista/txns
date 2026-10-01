@@ -37,6 +37,11 @@ storylines, catalog batches, variants batches, vocabulary). For each part:
    12-variant cap are skipped; the result is validated whole and an item the pool cannot complete still
    fails the draft. Nothing else is repaired. The leak check, the allowlist and every other rule are unchanged
    (issues #29, #31, #33, #35).
+   Since issue #36 the re-ask of such a draft is scoped when the first answer is well-formed and some items
+   are short (`targeted.Targeted`): it lists only those items, with the texts already kept for them and how
+   many new texts of which kind to write, and carries no problem list or earlier answer. The answer is added
+   to the kept texts per item and validated whole; an item still short, an unknown item or a malformed shape
+   exits 4. Otherwise the whole-batch re-ask above applies.
 
 Every response's reported cost is summed (FR-C6). Before each call (a new part
 or a re-ask) the run stops with exit 3 if this run's calls have reached
@@ -58,8 +63,9 @@ from typing import Any, Callable
 
 from txns import llm
 from txns.canonical import atomic_write, pretty_json, sha256_hex
-from txns.drafting import parts
+from txns.drafting import parts, targeted
 from txns.drafting.parts import Drafts, Part
+from txns.drafting.targeted import Targeted
 from txns.errors import BundleInvalid, LLMUnreachable
 from txns.privacy import NameIndex, find_in_object
 
@@ -116,7 +122,7 @@ def draft_all(
             raise LLMUnreachable(
                 f"cost cap reached: this run's LLM calls cost ${result.cost_usd:.4f}, "
                 f"`author.max_cost_usd` is ${max_cost_usd:g}; stopped before "
-                f"{'re-asking' if request.problems else 'drafting'} `{part.name}`, "
+                f"{'re-asking' if request.again else 'drafting'} `{part.name}`, "
                 f"{_kept(result)} kept in {_rel(folder, temp_dir)}; run `txns author` again to resume"
             )
         if transport is None:
@@ -155,26 +161,35 @@ def draft_all(
         _warn_dropped(part, dropped, warn)
         if bad:
             # FR-C5: one re-ask carrying the validation errors, then exit 4.
-            warn(f"draft `{part.name}` failed its schema ({_count(bad)}); asking once more")
             first, collided, first_dropped = document, bool(dropped), dropped
-            response = call(part, _reask(request, bad, _sendable(response, document, dropped), index))
-            cost += _cost(response)
-            document, bad, dropped, unfit = _check(part, response, payload, result.drafts, index, earlier_loss=collided)
-            _warn_dropped(part, dropped, warn)
-            _warn_unfit(part, unfit, warn)
-            if bad and first is not None and document is not None:
-                # What survived both answers counts: texts of the first answer fill what the second left short.
-                if collided or dropped:
-                    first, _ = parts.without_pack_wording(part, first, result.drafts)
-                merged = parts.with_survivors(part, first, document, result.drafts)
-                if merged != document and not parts.problems(part, merged, payload, result.drafts, index):
-                    document, bad = merged, []
-            if bad and (collided or dropped) and first is not None and document is not None:
-                # Still invalid: choose each item's texts from both answers (issue #35), then validate the whole.
-                built = parts.recover_variants(part, first, first_dropped, document, payload, result.drafts)
-                if built is not None and not parts.problems(part, built[0], payload, result.drafts, index):
-                    document, bad = built[0], []
-                    _warn_rebuilt(part, built[1], warn)
+            scoped = Targeted.plan(part, first, first_dropped, payload, result.drafts) if collided else None
+            if scoped is not None:
+                # Texts were lost to name coincidences: ask only for what the short items still lack (issue #36).
+                _warn_scoped(part, scoped, warn)
+                response = call(part, llm.Request(part.name, model, targeted.INSTRUCTIONS, scoped.input(),
+                                                  scoped.schema(), again=True))
+                cost += _cost(response)
+                document, bad = _integrate(part, response, scoped, payload, result.drafts, index, warn)
+            else:
+                warn(f"draft `{part.name}` failed its schema ({_count(bad)}); asking once more")
+                response = call(part, _reask(request, bad, _sendable(response, document, dropped), index))
+                cost += _cost(response)
+                document, bad, dropped, unfit = _check(part, response, payload, result.drafts, index, earlier_loss=collided)
+                _warn_dropped(part, dropped, warn)
+                _warn_unfit(part, unfit, warn)
+                if bad and first is not None and document is not None:
+                    # What survived both answers counts: texts of the first answer fill what the second left short.
+                    if collided or dropped:
+                        first, _ = parts.without_pack_wording(part, first, result.drafts)
+                    merged = parts.with_survivors(part, first, document, result.drafts)
+                    if merged != document and not parts.problems(part, merged, payload, result.drafts, index):
+                        document, bad = merged, []
+                if bad and (collided or dropped) and first is not None and document is not None:
+                    # Still invalid: choose each item's texts from both answers (issue #35), then validate the whole.
+                    built = parts.recover_variants(part, first, first_dropped, document, payload, result.drafts)
+                    if built is not None and not parts.problems(part, built[0], payload, result.drafts, index):
+                        document, bad = built[0], []
+                        _warn_rebuilt(part, built[1], warn)
             if bad:
                 raise BundleInvalid(
                     f"draft `{part.name}` failed its schema again after one re-ask ({_count(bad)}): "
@@ -239,6 +254,32 @@ def _warn_rebuilt(part: Part, items: list[str], warn: Callable[[str], None]) -> 
         warn(f"draft `{part.name}`: chose the texts of {len(items)} item{'s' if len(items) != 1 else ''} from both "
              f"answers, skipping texts that were repeated, over the cap or invalid: "
              f"{_shown([f'`{i}`' for i in items])}")
+
+
+def _warn_scoped(part: Part, scoped: Targeted, warn: Callable[[str], None]) -> None:
+    n = len(scoped.gaps)
+    warn(f"draft `{part.name}`: asking once more for only {n} item{'s' if n != 1 else ''} that "
+         f"{'are' if n != 1 else 'is'} still under their counts: {_shown([f'`{i}`' for i in scoped.gaps])}")
+
+
+def _integrate(part: Part, response: llm.Response, scoped: Targeted, payload, drafts: Drafts, index: NameIndex,
+               warn: Callable[[str], None]) -> tuple[Any, list[str]]:
+    """(document, problems) of the answer to the scoped re-ask: the replacements added to the texts kept from the
+    first answer, then checked as any other variants draft (`parts.problems`). Texts that match a ledger name,
+    and texts with invalid pack-size wording (issue #33), are dropped again, by location only."""
+    try:
+        answer = parse(response.text)
+    except (TypeError, ValueError) as exc:
+        return None, [f"the response is not one JSON document ({exc})"]
+    answer, dropped = parts.without_collisions(part, answer, index)
+    _warn_dropped(part, dropped, warn)
+    answer, unfit = parts.without_pack_wording(part, answer, drafts)
+    _warn_unfit(part, unfit, warn)
+    bad = parts.leak_problems(answer, index) or scoped.shape_problems(answer)
+    if bad:
+        return None, bad
+    document, faults = scoped.integrate(answer)
+    return document, faults + parts.problems(part, document, payload, drafts, index)
 
 
 def _sendable(response: llm.Response, document: Any, dropped: list) -> str:
