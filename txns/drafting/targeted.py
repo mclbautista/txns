@@ -3,7 +3,7 @@
     plan = Targeted.plan(part, first_answer_minus_dropped, dropped, payload, drafts)   # None: no scoped re-ask
     plan.gaps                 # item id -> Gap: the items still under their counts, and how many new texts to ask
     plan.input(), plan.schema()   # the request's data and JSON schema: only those items, only new texts
-    plan.shape_problems(answer)   # [] when the answer holds nothing but the replacements that were asked for
+    plan.shape_problems(answer)   # [] when the answer is exactly what `plan.schema()` and the counts asked for allow
     document, faults = plan.integrate(answer)   # kept texts + new ones, item by item; `problems` still decides
 
 A first answer that lost texts to name coincidences (`parts.without_collisions`) and is left short is not
@@ -14,12 +14,18 @@ vendor-prefixed text without its vendor) and how many new texts of which kind to
 spare that grows with what the item lost, never past the 12-variant cap). Nothing about the texts that were dropped is sent, not even that there were any: the
 re-ask carries no problem list and no earlier answer, and the instructions only ask for fresh wording.
 
-The answer is integrated deterministically: every kept text stays, in its place; the new texts of the asked
-kinds are added in the answer's order only while the item is under its counts, skipping texts that repeat, that
-another item or an earlier draft has, that are past the cap, or whose pack-size wording is invalid (issue #33's
-repair). A price, length, character or similar fault in an asked kind is not repaired. Texts of a kind that was
-not asked for are ignored; an unknown or repeated item, extra keys or a malformed item shape are problems.
-The caller validates the result in full (`parts.problems`) and an item still short exits 4: no third call.
+The answer fails closed before anything is integrated (issue #40): it must conform to the exact schema that
+was sent (`schema()`), list each asked item once, and hold exactly the number of new texts of each kind that was
+asked for that item (an empty list for a kind that was not). An unknown or repeated item, an extra key, a
+malformed entry, a text that is not a string, a vendor-prefixed text, an unrequested kind or a count that is off
+by one is a problem, whatever the kept texts would add up to. The check is on the answer as the model gave it,
+before texts that match a ledger name are dropped from it; its messages carry locations, never a value.
+
+A conforming answer is integrated deterministically: every kept text stays, in its place; the new texts are
+added in the answer's order only while the item is under its counts, skipping texts that repeat, that another
+item or an earlier draft has, that are past the cap, or whose pack-size wording is invalid (issue #33's repair).
+A price, length, character or similar fault in a text is not repaired. The caller validates the result in full
+(`parts.problems`) and an item still short exits 4: no third call.
 """
 
 from __future__ import annotations
@@ -28,7 +34,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from txns.drafting import parts
+from txns.drafting import jsonschema, parts
 from txns.drafting.parts import Drafts, Part
 
 INSTRUCTIONS = parts.COMMON + (
@@ -61,6 +67,16 @@ def _asked(shortfall: int, lost: int, kept: int) -> int:
         return 0
     spare = max(parts.COLLISION_SPARE, parts.COLLISION_SPARE_PER_LOSS * lost)
     return min(shortfall + spare, parts.MAX_VARIANTS - kept)
+
+
+def _locations(errors: list[str]) -> list[str]:
+    """Schema errors by location only: their messages can quote what the model wrote (a key, a text, an id)."""
+    out: list[str] = []
+    for error in errors:
+        line = f"{error.partition(': ')[0]}: does not fit the schema of the re-ask"
+        if line not in out:
+            out.append(line)
+    return out
 
 
 class Targeted:
@@ -129,42 +145,44 @@ class Targeted:
         }
 
     def schema(self) -> dict[str, Any]:
-        """The variants schema narrowed to the re-ask: only the listed items, no kind demanded of an item that
-        needs none, no vendor-prefixed texts."""
+        """The variants schema narrowed to the re-ask: one object for each listed item and none other, no more
+        texts of a kind than any item is asked for (none for a kind no item needs), no vendor-prefixed texts."""
         schema = copy.deepcopy(parts.SCHEMAS["variants"])
         items = schema["properties"]["items"]
-        items["maxItems"] = len(self.gaps)
+        items["minItems"] = items["maxItems"] = len(self.gaps)
         props = items["items"]["properties"]
         props["id"] = {"type": "string", "enum": list(self.gaps)}
         props["descriptive"]["minItems"] = 0
+        props["descriptive"]["maxItems"] = max(g.descriptive for g in self.gaps.values())
+        props["terse"]["maxItems"] = max(g.terse for g in self.gaps.values())
         props["vendor"]["maxItems"] = 0
         return schema
 
     def shape_problems(self, answer: Any) -> list[str]:
-        """Why `answer` is not a set of replacements for the listed items, by location only (never an id or text)."""
-        if not isinstance(answer, dict) or set(answer) != {"items"} or not isinstance(answer["items"], list):
-            return ["$: expected one object with a single `items` list"]
-        out: list[str] = []
+        """Why `answer` does not fit the re-ask, by location only (never an id, a key or a text): [] when it
+        conforms to `schema()`, lists each asked item once and holds exactly the texts asked for each. The counts
+        are per item, so they are checked here: the schema's item is shared and bounds each kind by the largest ask."""
+        out = _locations(jsonschema.errors(answer, self.schema()))
+        if out:
+            return out
         seen: set[str] = set()
         for i, item in enumerate(answer["items"]):
             where = f"$.items[{i}]"
-            if not isinstance(item, dict) or set(item) != parts.ITEM_KEYS:
-                out.append(f"{where}: expected an object with exactly the keys id, descriptive, terse and vendor")
-            elif not all(isinstance(item[k], list) for k in ("descriptive", "terse", "vendor")):
-                out.append(f"{where}: descriptive, terse and vendor must be lists")
-            elif not isinstance(item["id"], str) or item["id"] not in self.gaps:
-                out.append(f"{where}: an item that was not asked for; answer only the listed items")
-            elif item["id"] in seen:
+            if item["id"] in seen:
                 out.append(f"{where}: listed twice")
-            else:
-                seen.add(item["id"])
+                continue
+            seen.add(item["id"])
+            gap = self.gaps[item["id"]]
+            for kind, asked in (("descriptive", gap.descriptive), ("terse", gap.terse)):
+                if len(item[kind]) != asked:
+                    out.append(f"{where}.{kind}: expected exactly {asked} texts, got {len(item[kind])}")
         return out
 
     def integrate(self, answer: Any) -> tuple[dict[str, Any], list[str]]:
         """(document, faults): every item's kept texts, topped up for the deficient items from the answer.
 
-        `answer` must pass `shape_problems`. `faults` lists, by location in the answer, the faults of an asked
-        kind that are not repaired (a price, a length, a character): that item gets nothing from the answer.
+        `answer` must pass `shape_problems` (every asked item is in it). `faults` lists, by location in the answer, the faults that are not
+        repaired (a price, a length, a character): that item gets nothing from the answer.
         The document may still be short; `parts.problems` says where."""
         where = {item["id"]: (at, item) for at, item in enumerate(answer["items"])}
         picks = copy.deepcopy(self.picks)
@@ -172,12 +190,9 @@ class Targeted:
         for item_id, pick in picks.items():
             parts.claim(claims, item_id, pick.lists)  # what is kept is claimed before anything new is considered
         faults: list[str] = []
-        for item_id, gap in self.gaps.items():  # catalog order, whatever the order of the answer
-            if item_id not in where:
-                continue
+        for item_id in self.gaps:  # catalog order, whatever the order of the answer
             at, item = where[item_id]
-            asked = {"descriptive": item["descriptive"] if gap.descriptive else [],
-                     "terse": item["terse"] if gap.terse else [], "vendor": []}
+            asked = {"descriptive": item["descriptive"], "terse": item["terse"], "vendor": []}
             pool = parts.answer_pool(self.batch[item_id], {item_id: asked}, self.names)
             if pool is None:
                 faults.extend(parts.entry_faults(f"$.items[{at}]", self.batch[item_id], asked, self.names))
