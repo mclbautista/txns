@@ -236,9 +236,12 @@ class OpenRouter:
         )
 
     def _http_error(self, status: int, raw: bytes, headers) -> TransportError:
-        message = _error_message(raw)
+        message, reason = _error_message(raw)
         retry_after = _retry_after(headers)
-        detail = f" ({self._clean(message)})" if message else ""
+        # The provider's own reason (e.g. which schema field it refused) follows OpenRouter's
+        # message in the detail; the status is still read from OpenRouter's message alone.
+        shown = "; ".join(x for x in (message, reason) if x)
+        detail = f" ({self._clean(shown)})" if shown else ""
         if status in RETRYABLE_STATUS or status >= 500:
             what = "rate limited" if status == 429 else "OpenRouter or the provider is unavailable"
             return TransportError(f"{what}: HTTP {status}{detail}", retry_after=retry_after)
@@ -286,15 +289,43 @@ def _read(exc: urllib.error.HTTPError) -> bytes:
         return b""
 
 
-def _error_message(raw: bytes) -> str:
+def _error_message(raw: bytes) -> tuple[str, str]:
+    """(OpenRouter's message, the provider's own reason or "") from an error body.
+
+    OpenRouter wraps a provider's refusal as "Provider returned error" and passes the
+    provider's answer on in `error.metadata.raw` (with `provider_name`); when that is a
+    JSON error object, its innermost `message` is the reason, else the raw text is."""
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
-        return raw.decode("utf-8", errors="replace").strip()[:MAX_ERROR_TEXT]
+        return raw.decode("utf-8", errors="replace").strip()[:MAX_ERROR_TEXT], ""
     err = data.get("error") if isinstance(data, dict) else None
-    if isinstance(err, dict):
-        return str(err.get("message") or "")
-    return str(err or "")
+    if not isinstance(err, dict):
+        return str(err or ""), ""
+    meta = err.get("metadata") if isinstance(err.get("metadata"), dict) else {}
+    reason = _innermost_message(meta.get("raw"))
+    if reason and meta.get("provider_name"):
+        reason = f"{meta['provider_name']}: {reason}"
+    return str(err.get("message") or ""), reason
+
+
+def _innermost_message(raw: Any) -> str:
+    if raw is None:
+        return ""
+    data = raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            return raw.strip()
+    found = None
+    while isinstance(data, dict):  # {"error": {"message": ..., "error": {...}}} down to the last message
+        if isinstance(data.get("message"), str) and data["message"].strip():
+            found = data["message"]
+        data = data.get("error")
+    if found is not None:
+        return found.strip()
+    return raw.strip() if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
 
 
 def _retry_after(headers) -> float | None:

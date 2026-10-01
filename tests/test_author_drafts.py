@@ -272,6 +272,10 @@ class SchemaTest(DraftCase):
         ("catalog-01", Reply(edit=_set(["items", 0, "sellers", 0, "anchor_price"], 5)), "never carry a price"),
         ("catalog-01", Reply(edit=_set(["items", 0, "storyline"], "nightlife")), "not a drafted storyline"),
         ("catalog-01", Reply(edit=_drop(["items", 0, "sellers"])), "missing `sellers`"),
+        ("catalog-01", Reply(edit=_set(["items", 0, "goods"], "food")),
+         "'food' is not one of 'stock', 'hardware', or null"),
+        ("catalog-01", Reply(edit=_set(["items", 0, "sellers", 0, "vendor"], "")),
+         "'' is not a non-empty string or null"),
         ("catalog-01", Reply(edit=_set(["items", 0, "sellers", 0, "vendor"], "Invented Trading Co")),
          "not an allowlisted or fabricated vendor"),
         ("catalog-01", Reply(edit=_set(["items", 0, "category"], "Snacks")), "not one of this call's categories"),
@@ -322,6 +326,33 @@ class SchemaTest(DraftCase):
         self.assertTrue(stock)
         with_pcs = {i for i, v in self.variants().items() if any("{pcs}" in t for t in v["descriptive"])}
         self.assertEqual(with_pcs, stock)
+
+
+class NullableFieldTest(DraftCase):
+    """`goods` and a seller's `vendor` may be null; the schema says so without a list-valued `type`."""
+
+    def test_goods_absent_null_stock_or_hardware_passes(self):
+        for goods in ("absent", None, "stock", "hardware"):
+            with self.subTest(goods=goods):
+                self.ws = Workspace(self)
+                self.ws.install_author_inputs()
+                self.ws.write_config(f'[author]\nmodel = "{MODEL}"\n')
+                edit = (lambda d: d["items"][0].pop("goods", None)) if goods == "absent" else \
+                    _set(["items", 0, "goods"], goods)
+                fake = ScriptedLLM().script("catalog-01", Reply(edit=edit))
+                self.ok(fake)
+                self.assertEqual(fake.parts().count("catalog-01"), 1)  # not re-asked
+                first = self.saved("catalog-01")["draft"]["items"][0]
+                self.assertEqual(first.get("goods", "absent"), goods)
+
+    def test_a_seller_with_a_null_vendor_passes(self):
+        def street_stall(doc):
+            doc["items"][0]["sellers"] = [*doc["items"][0]["sellers"][:1], {"id": "street-stall", "vendor": None}]
+
+        fake = ScriptedLLM().script("catalog-01", Reply(edit=street_stall))
+        self.ok(fake)
+        self.assertEqual(fake.parts().count("catalog-01"), 1)
+        self.assertIn({"id": "street-stall", "vendor": None}, self.saved("catalog-01")["draft"]["items"][0]["sellers"])
 
 
 class ResumeTest(DraftCase):

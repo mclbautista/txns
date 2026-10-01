@@ -93,6 +93,9 @@ _BRACES = re.compile(r"[{}]")
 _ID = {"type": "string", "pattern": r"^[a-z][a-z0-9_]{1,39}$"}
 _SELLER_ID = {"type": "string", "pattern": r"^[a-z][a-z0-9-]{1,39}$"}
 _TEXT = {"type": "string", "minLength": 1, "maxLength": 100}
+# A nullable field is `anyOf` [its schema, _NULL], never a list-valued `type`: Anthropic's
+# structured-output validator refuses a type list (with a null enum value) with HTTP 400.
+_NULL = {"type": "null"}
 
 SCHEMAS: dict[str, dict[str, Any]] = {
     "storylines": {
@@ -129,14 +132,14 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                 "storyline": _ID,
                 "class": {"type": "string", "enum": list(CLASSES)},
                 "archetype": {"type": "string", "enum": list(ARCHETYPES)},
-                "goods": {"type": ["string", "null"], "enum": [*TIERED_GOODS, None]},
+                "goods": {"anyOf": [{"type": "string", "enum": list(TIERED_GOODS)}, _NULL]},
                 "decimal": {"type": "boolean"},
                 "params": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0}},
                 "sellers": {"type": "array", "minItems": 1, "maxItems": 4, "items": {
                     "type": "object",
                     "additionalProperties": False,
                     "required": ["id", "vendor"],
-                    "properties": {"id": _SELLER_ID, "vendor": {"type": ["string", "null"], "minLength": 1}},
+                    "properties": {"id": _SELLER_ID, "vendor": {"anyOf": [{"type": "string", "minLength": 1}, _NULL]}},
                 }},
             },
         }}},
