@@ -20,12 +20,14 @@ from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from txns import __version__
 from txns.commands import Runtime
+from txns.commands import approve as approve_cmd
 from txns.commands import author as author_cmd
 from txns.commands import generate as generate_cmd
 from txns.errors import ExitCode, TxnsError
 
 COMMANDS = {
     "author": (author_cmd, "read the ledgers, draft, check and promote a new bundle"),
+    "approve": (approve_cmd, "re-check a (hand-edited) bundle and mark it reviewed"),
     "generate": (generate_cmd, "write a CSV and run.json from the latest bundle"),
 }
 
