@@ -1,0 +1,58 @@
+{
+  "items": {
+    "pantry.coffee": {
+      "storyline": "office_pantry",
+      "category": "Meals and Entertainment",
+      "class": "retail",
+      "archetype": "petty_daily",
+      "params": {
+        "per_week": 3.0
+      }
+    },
+    "pantry.water": {
+      "storyline": "office_pantry",
+      "category": "Office Expenses",
+      "class": "retail",
+      "archetype": "petty_daily",
+      "params": {
+        "per_week": 1.5
+      }
+    },
+    "pantry.snacks": {
+      "storyline": "office_pantry",
+      "category": "Meals and Entertainment",
+      "class": "retail",
+      "archetype": "petty_daily",
+      "params": {
+        "per_week": 1.0
+      }
+    },
+    "errands.courier": {
+      "storyline": "errands",
+      "category": "Delivery and Freight",
+      "class": "retail",
+      "archetype": "petty_daily",
+      "params": {
+        "per_week": 1.2
+      }
+    },
+    "errands.parking": {
+      "storyline": "errands",
+      "category": "Transportation",
+      "class": "retail",
+      "archetype": "petty_daily",
+      "params": {
+        "per_week": 2.0
+      }
+    },
+    "errands.mobile_load": {
+      "storyline": "errands",
+      "category": "Telephone and Internet",
+      "class": "retail",
+      "archetype": "petty_daily",
+      "params": {
+        "per_week": 0.5
+      }
+    }
+  }
+}

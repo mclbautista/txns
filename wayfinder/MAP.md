@@ -10,6 +10,8 @@ A **design spec** (architecture + data model + decisions) for a one-command, see
 
 > Confirmed by Cyril (ticket 01, 2026-09-30): the destination is **spec only**. "≥ ₱4M" is a configurable target, not a constant: the current need is about ₱4M per quarter and it may change, so the spec must not hardcode it. "Spot-check" means a brief human look at a sample of rows.
 
+> Design spec: GitHub issue #7 (`mclbautista/txns`, "Spec: txns realistic transaction generator"), approved for ticketing by Cyril 2026-09-30. It is synthesised from this map, the tickets, `CONTEXT.md` and the ADRs; read it for the full design.
+
 ## Notes
 
 - Domain: Philippine post-production facility (currency ₱), per the ₱4M target. Services: offline/online edit, conform, colour, restoration scan, archive verification, freelance editors, stage hire; stock: LTO tape, optical media.
@@ -34,6 +36,7 @@ A **design spec** (architecture + data model + decisions) for a one-command, see
 | 07 | Correction feedback loop | closed |
 | 08 | Config and CLI shape | closed |
 | 09 | Implementation stack and LLM | closed |
+| 10 | Extra columns and edge cases | closed |
 
 ## Decisions so far
 
@@ -83,10 +86,11 @@ A **design spec** (architecture + data model + decisions) for a one-command, see
 
 - **Ticket 09 (done, Cyril 2026-09-30, ADR 0007):** Python 3.12+ with own PRNG and integer centavos; `txns` console script. `author` calls OpenRouter with one pinned Sonnet-class model, no fallbacks; only aggregates and scrubbed names (brand allowlist, fabricated replacements) leave the machine. Automatic promotion gate includes a smoke `generate`. Retry then exit 3 (also cost cap, default US$5), schema failure exit 4, partial drafts resume. Strict Xero-export ledger parser; `reference.json` re-derived each run and hashed into the bundle. Details in `tickets/09-implementation-stack-and-llm.md`.
 
+- **Ticket 10 (done, Cyril 2026-09-30):** full detail in `tickets/10-extra-columns-and-edge-cases.md`. Four columns only, no credits/refunds, no VAT. No blank item cells: textless rows get terse invented variants (per-category share from `reference.json`, never for big-ticket); vendor prefix only on a minority of descriptive variants and must match the price point's seller (amends 05). Price and duplicate checks key on catalog item id (amends 06); terse share is a warn-only eighth anomaly check. CSV format rules fixed (UTF-8, LF, ISO dates, 100-char text cap).
+
 ## Not yet specified
 
-- Validation/realism scorecard (metrics that prove data is realistic and not just random); temporal and price models are now decided.
-- Extra columns or edge cases the import pipeline needs (credits/refunds, tax, vendor, project code), if any.
+Nothing. Extra columns and edge cases are settled by ticket 10; the validation scorecard is specified in #7 (FR-I).
 
 ## Out of scope
 

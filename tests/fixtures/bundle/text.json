@@ -1,0 +1,92 @@
+{
+  "pantry.coffee": {
+    "descriptive": [
+      "Brewed coffee for client review session",
+      "Iced coffee for editing team",
+      "Coffee for late-night grading session"
+    ],
+    "vendor": [
+      {
+        "seller": "cafe-1",
+        "text": "Bean Harbor Cafe - Coffee for client review"
+      }
+    ],
+    "terse": [
+      "Coffee",
+      "Iced coffee"
+    ]
+  },
+  "pantry.water": {
+    "descriptive": [
+      "Purified water refill, 5 gallons",
+      "Water refill for office dispenser",
+      "Drinking water for edit suites"
+    ],
+    "vendor": [
+      {
+        "seller": "water-2",
+        "text": "Clearspring Refills - 5-gallon water refill"
+      }
+    ],
+    "terse": [
+      "Water refill",
+      "Water"
+    ]
+  },
+  "pantry.snacks": {
+    "descriptive": [
+      "Snacks for overtime crew",
+      "Bread and biscuits for pantry",
+      "Chips and crackers for pantry"
+    ],
+    "terse": [
+      "Snacks",
+      "Pantry snacks"
+    ]
+  },
+  "errands.courier": {
+    "descriptive": [
+      "Courier delivery of hard drive to client",
+      "Same-day courier, drive return",
+      "Courier for signed delivery receipts"
+    ],
+    "vendor": [
+      {
+        "seller": "courier-1",
+        "text": "Swiftlane Couriers - Hard drive delivery"
+      }
+    ],
+    "terse": [
+      "Courier",
+      "Delivery fee"
+    ]
+  },
+  "errands.parking": {
+    "descriptive": [
+      "Parking fee at client office",
+      "Parking, post-house meeting",
+      "Parking at sound studio"
+    ],
+    "terse": [
+      "Parking",
+      "Parking fee"
+    ]
+  },
+  "errands.mobile_load": {
+    "descriptive": [
+      "Prepaid mobile load for production phone",
+      "Mobile load, field coordinator",
+      "Mobile data load for location scout"
+    ],
+    "vendor": [
+      {
+        "seller": "telco-1",
+        "text": "Signalwave - Prepaid load for production phone"
+      }
+    ],
+    "terse": [
+      "Mobile load",
+      "Load"
+    ]
+  }
+}

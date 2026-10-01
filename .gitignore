@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+# generate output in the working folder
+/out/
+# author temp folder (reference.json, drafts)
+/.txns/

@@ -1,0 +1,134 @@
+{
+  "pantry.coffee": {
+    "points": [
+      {
+        "unit_price": 16500,
+        "seller": "cafe-1"
+      },
+      {
+        "unit_price": 18000,
+        "seller": "cafe-2"
+      }
+    ],
+    "quantities": [
+      {
+        "qty": 1,
+        "weight": 5
+      },
+      {
+        "qty": 2,
+        "weight": 3
+      },
+      {
+        "qty": 4,
+        "weight": 1
+      }
+    ]
+  },
+  "pantry.water": {
+    "points": [
+      {
+        "unit_price": 3750,
+        "seller": "water-1"
+      },
+      {
+        "unit_price": 4250,
+        "seller": "water-2"
+      }
+    ],
+    "quantities": [
+      {
+        "qty": 1,
+        "weight": 3
+      },
+      {
+        "qty": 2,
+        "weight": 4
+      },
+      {
+        "qty": 3,
+        "weight": 2
+      }
+    ]
+  },
+  "pantry.snacks": {
+    "points": [
+      {
+        "unit_price": 24950,
+        "seller": "grocery-1"
+      },
+      {
+        "unit_price": 31975,
+        "seller": "grocery-2"
+      }
+    ],
+    "quantities": [
+      {
+        "qty": 1,
+        "weight": 6
+      },
+      {
+        "qty": 2,
+        "weight": 2
+      }
+    ]
+  },
+  "errands.courier": {
+    "points": [
+      {
+        "unit_price": 15000,
+        "seller": "courier-1"
+      },
+      {
+        "unit_price": 21950,
+        "seller": "courier-2"
+      }
+    ],
+    "quantities": [
+      {
+        "qty": 1,
+        "weight": 8
+      },
+      {
+        "qty": 2,
+        "weight": 1
+      }
+    ]
+  },
+  "errands.parking": {
+    "points": [
+      {
+        "unit_price": 5000,
+        "seller": "parking-1"
+      },
+      {
+        "unit_price": 6000,
+        "seller": "parking-2"
+      }
+    ],
+    "quantities": [
+      {
+        "qty": 1,
+        "weight": 1
+      }
+    ]
+  },
+  "errands.mobile_load": {
+    "points": [
+      {
+        "unit_price": 30000,
+        "seller": "telco-1"
+      },
+      {
+        "unit_price": 50000,
+        "seller": "telco-1"
+      }
+    ],
+    "quantities": [
+      {
+        "qty": 1,
+        "weight": 1
+      }
+    ]
+  }
+}

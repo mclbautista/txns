@@ -1,0 +1,8 @@
+{
+  "errands": {
+    "description": "Small runs outside the office: couriers, parking, mobile load."
+  },
+  "office_pantry": {
+    "description": "Everyday pantry spend: coffee, water, snacks."
+  }
+}
