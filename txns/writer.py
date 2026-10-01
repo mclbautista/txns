@@ -9,12 +9,11 @@ from __future__ import annotations
 
 import csv
 import io
-import os
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from txns.canonical import pretty_json
+from txns.canonical import atomic_write, pretty_json
 from txns.engine.rows import Row
 from txns.money import format_centavos
 
@@ -70,17 +69,11 @@ def csv_bytes(rows: list[Row]) -> bytes:
     return buf.getvalue().encode("utf-8")
 
 
-def _atomic_write(path: Path, data: bytes) -> None:
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
-
-
 def write_outputs(out_dir: Path, stem: str, rows: list[Row], run: dict[str, Any]) -> tuple[Path, Path]:
     """Write `<stem>.csv` and `<stem>.run.json` into out_dir."""
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out_dir / f"{stem}.csv"
     run_path = out_dir / f"{stem}.run.json"
-    _atomic_write(csv_path, csv_bytes(rows))
-    _atomic_write(run_path, pretty_json(run).encode("utf-8"))
+    atomic_write(csv_path, csv_bytes(rows))
+    atomic_write(run_path, pretty_json(run).encode("utf-8"))
     return csv_path, run_path

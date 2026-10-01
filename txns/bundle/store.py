@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import tempfile
@@ -23,7 +22,7 @@ from typing import Callable
 
 from txns.bundle import hashing, model
 from txns.bundle.model import Bundle
-from txns.canonical import pretty_json
+from txns.canonical import atomic_write, pretty_json
 from txns.errors import BundleInvalid, MissingInput
 
 BUNDLES_DIR = "bundles"
@@ -117,9 +116,7 @@ def mark_reviewed(folder: Path) -> None:
     folder, not in it, so a crash never leaves a stray file inside the hashed content."""
     manifest = _read_manifest(folder)
     manifest["reviewed"] = True
-    tmp = folder.parent / f".{folder.name}.manifest.tmp"
-    tmp.write_text(pretty_json(manifest), encoding="utf-8")
-    os.replace(tmp, folder / hashing.MANIFEST)
+    atomic_write(folder / hashing.MANIFEST, pretty_json(manifest), tmp=folder.parent / f".{folder.name}.manifest.tmp")
 
 
 def load(folder: Path) -> Bundle:

@@ -35,7 +35,6 @@ needs no connection.
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -43,7 +42,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from txns import llm
-from txns.canonical import pretty_json, sha256_hex
+from txns.canonical import atomic_write, pretty_json, sha256_hex
 from txns.drafting import parts
 from txns.drafting.parts import Drafts, Part
 from txns.errors import BundleInvalid, LLMUnreachable
@@ -149,7 +148,7 @@ def draft_all(
                     f"draft `{part.name}` failed its schema again after one re-ask ({_count(bad)}): "
                     f"{_shown(bad, '; ')}; {_kept(result)} kept"
                 )
-        _save(path, {"part": part.name, "model": response.model, "cost_usd": cost, "draft": document})
+        atomic_write(path, pretty_json({"part": part.name, "model": response.model, "cost_usd": cost, "draft": document}))
         parts.apply(part, document, result.drafts)
         result.drafts.served_models[part.name] = response.model
         result.drafts.costs[part.name] = cost
@@ -230,13 +229,6 @@ def _resume(part: Part, path: Path, payload, drafts: Drafts, index: NameIndex, w
     drafts.served_models[part.name] = str(saved.get("model", ""))
     drafts.costs[part.name] = float(saved.get("cost_usd", 0) or 0)
     return True
-
-
-def _save(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(pretty_json(data), encoding="utf-8", newline="\n")
-    os.replace(tmp, path)
 
 
 def _shown(items: list[str], sep: str = ", ") -> str:
