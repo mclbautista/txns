@@ -13,8 +13,12 @@ How (FR-G1 to FR-G4):
    occurrence lever, until gap rules stop them growing; then larger quantities
    from the allowed sets for (2) subscription seats, (3) retail quantities,
    (4) big-ticket scope. Every candidate plan is planned and drawn afresh; unit
-   prices never move. With `target_rows`, the occurrence scale is set by the
-   row count first and the quantity stages then move the total (either way).
+   prices never move. A plan above the band first loses occurrences; when that
+   alone cannot get under the band (no occurrence lever, or the other items are
+   above it on their own) the quantity stages go down in reverse order (scope,
+   quantities, seats), then occurrences again. With `target_rows`, the
+   occurrence scale is set by the row count first and the quantity stages then
+   move the total (either way).
 3. Closing: from the nearest plan below (or above) the band, whole small
    ordinary occurrences are added (taken from a larger plan, so they are dated
    by the archetype's own rules, and only where gap rules allow) or dropped, or
@@ -215,7 +219,17 @@ def _search_total(plans: _Plans, goal: Goal) -> Setting | _Bracket:
     base = Setting()
     total = plans.total
     if total(base) > goal.hi:
-        return _shrink_occurrences(plans, total, goal.lo, goal.hi, base)
+        found = _shrink_occurrences(plans, total, goal.lo, goal.hi, base)
+        if isinstance(found, Setting) or found.under is not None:
+            return found
+        # Fewer occurrences alone cannot get under the band (no occurrence lever, or the
+        # items without one are above it on their own): lower the quantity stages in
+        # reverse order (scope, quantities, seats) from the plan as shaped, then the
+        # occurrences again from there.
+        found = _scale_quantities(plans, goal, base)
+        if isinstance(found, Setting) or found.under is not None:
+            return found
+        return _shrink_occurrences(plans, total, goal.lo, goal.hi, found.over)
     found, last = _grow_occurrences(plans, total, goal.lo, goal.hi, base)
     if isinstance(found, Setting) or found.over is not None:
         return found
