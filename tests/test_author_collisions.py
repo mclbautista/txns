@@ -267,5 +267,101 @@ class HighCollisionTest(CollisionCase):
         self.assertFalse((self.ws.cwd / "bundles").exists())
 
 
+def _pieces(base: str) -> str:
+    return f"{base} cable, {{pcs}} meters"  # a quantity in meters where the pack wording is pieces (issue #33)
+
+
+def _mixed(round_: int, *, bad=(), spare=0):
+    """`_collide`, plus pack-wording texts. Items in `bad` also carry one text that states a quantity in meters
+    (and so fails the pack-wording rule), in place of one of their plain texts; `bad` items are given the first
+    three texts only (one colliding at the reported path), the rest get 3 + `spare`."""
+    collide = _collide(round_, spare)
+
+    def edit(doc):
+        collide(doc)
+        for n, v in enumerate([v for v in doc["items"] if v["terse"]][:3]):
+            if n in bad:
+                v["descriptive"] = v["descriptive"][:3]
+                v["descriptive"][0 if PATHS[n][1] == 2 else 1] = _pieces(v["id"].replace("_", " "))
+            # the model words things differently in the re-ask, so its plain texts differ from the first answer's
+            v["descriptive"] = [t if t.endswith(COLLIDING[3 * round_ + n]) or "{pcs}" in t else f"{t} r{round_}"
+                                for t in v["descriptive"]]
+    return edit
+
+
+class MixedFailureTest(CollisionCase):
+    """Issue #33: the re-ask answer loses texts to name coincidences and also carries repairable pack wording."""
+
+    def script(self):
+        # First answer: three coincidences (each item left with 2 of its 3 descriptive texts). Re-ask answer: three more,
+        # and two of the items also carry a quantity in meters, leaving each with a single usable text.
+        return ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_mixed(1, bad=(0, 1), spare=0)))
+
+    def test_the_reported_failure_now_promotes_an_unreviewed_bundle_with_one_re_ask(self):
+        fake = self.script()
+        r = self.ok(fake)
+        self.assertEqual(fake.parts().count("variants-01"), 2)  # the existing one re-ask, no more
+        self.assertRegex(r.stdout, r"promoted bundles/draft-[0-9a-f]{12}/ \(reviewed: false\)")
+        self.assertEqual(len(list((self.ws.cwd / "bundles").iterdir())), 1)
+        self.assert_no_collision_text(r, fake)
+        self.assertNotIn("meters", (r.stdout + r.stderr + fake.sent_text() + self.everything_written()).casefold())
+
+    def test_the_short_items_are_restored_from_first_answer_texts_and_stay_valid(self):
+        self.ok(self.script())
+        for v in self.saved("variants-01")["draft"]["items"]:
+            self.assertGreaterEqual(len(v["descriptive"]) + len(v["vendor"]), 3)
+            self.assertFalse(any("{pcs}" in t and "meters" in t for t in v["descriptive"] + v["terse"]))
+
+    def test_the_second_ask_carries_only_locations_and_the_answer_minus_matches(self):
+        fake = self.script()
+        self.ok(fake)
+        _, again = [q for q in fake.requests if q.part == "variants-01"]
+        for text in COLLIDING:
+            self.assertNotIn(text, again.previous + " ".join(again.problems))
+
+    def test_the_dropped_wording_is_reported_by_location_only(self):
+        r = self.ok(self.script())
+        self.assertRegex(r.stderr, r"draft `variants-01`: dropped 2 texts with pack-size or quantity wording")
+        self.assertNotIn("meters", r.stderr)
+
+    def test_pack_wording_alone_twice_still_exits_4(self):
+        # No coincidence anywhere: this is the ordinary twice-invalid answer.
+        def meters(doc):
+            v = [v for v in doc["items"] if v["terse"]][0]
+            v["descriptive"][0] = _pieces(v["id"].replace("_", " "))
+
+        fake = ScriptedLLM().script("variants-01", Reply(edit=meters), Reply(edit=meters))
+        r = self.author(fake)
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertEqual(fake.parts().count("variants-01"), 2)
+        self.assertFalse((self.ws.cwd / "bundles").exists())
+
+    def test_an_item_still_short_after_dropping_the_wording_exits_4(self):
+        def twice(doc):
+            _collide(0)(doc)
+            v = [v for v in doc["items"] if v["terse"]][0]
+            v["descriptive"][0] = f"{v['id'].replace('_', ' ')} {COLLIDING[8]}"
+
+        # the first answer's first item loses two texts, so it has one survivor; with one usable text in the re-ask
+        # that is two in all, still under the three it needs
+        fake = ScriptedLLM().script("variants-01", Reply(edit=twice), Reply(edit=_mixed(1, bad=(0, 1, 2), spare=0)))
+        r = self.author(fake)
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("needs at least 3", r.stderr)
+        self.assertFalse((self.ws.cwd / "bundles").exists())
+
+    def test_another_kind_of_invalid_text_is_not_repaired(self):
+        def priced(doc):
+            _mixed(1, bad=(0, 1), spare=0)(doc)
+            v = [v for v in doc["items"] if v["terse"]][2]
+            v["descriptive"][0] = f"{v['id'].replace('_', ' ')} for \u20b1150.00"
+
+        fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=priced))
+        r = self.author(fake)
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("states a price", r.stderr)
+        self.assertFalse((self.ws.cwd / "bundles").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

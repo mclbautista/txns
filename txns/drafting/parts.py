@@ -403,6 +403,44 @@ def collision_problems(document: Any, dropped: list[tuple[int, str, int]]) -> li
     return out
 
 
+def without_pack_wording(part: Part, document: Any, drafts: Drafts) -> tuple[Any, list[int]]:
+    """A variants answer minus the texts whose pack-size wording is invalid, and the items they were in.
+
+        cleaned, items = without_pack_wording(part, document, drafts)   # items: [item position, ...] per dropped text
+
+    Only the pack-size wording rules (`_pack_problems`: where `{pcs}` may go, no literal pack size or
+    quantity such as a length in meters) are applied, to each text on its own. The text is dropped and
+    never sent back or saved; `problems` then validates what remains in full, so an item left short, a
+    price, a length, a duplicate or any other fault still fails the draft. Meant for the answers of a draft
+    that already lost texts to name coincidences (issue #33): it is the same repair, a text the model
+    worded wrongly is dropped, not a relaxed rule."""
+    items = document.get("items") if part.kind == "variants" and isinstance(document, dict) else None
+    if not isinstance(items, list):
+        return document, []
+    dropped: list[int] = []
+    cleaned = []
+    for i, item in enumerate(items):
+        known = drafts.items.get(item.get("id")) if isinstance(item, dict) and isinstance(item.get("id"), str) else None
+        lists = isinstance(item, dict) and all(isinstance(item.get(k), list) for k in ("descriptive", "terse", "vendor"))
+        if known is None or known["category"] not in part.categories or not lists:
+            cleaned.append(item)
+            continue
+        item = dict(item)
+        for kind in ("descriptive", "terse", "vendor"):
+            kept = []
+            for entry in item[kind]:
+                text = entry.get("text") if isinstance(entry, dict) else entry
+                if kind == "vendor" and isinstance(text, str):
+                    text = text.partition(SEPARATOR)[2] or text
+                if isinstance(text, str) and _pack_problems("", text, known):
+                    dropped.append(i)
+                else:
+                    kept.append(entry)
+            item[kind] = kept
+        cleaned.append(item)
+    return ({**document, "items": cleaned}, dropped) if dropped else (document, [])
+
+
 def _surplus(lost: int, need: int) -> int:
     return min(max(COLLISION_SPARE, COLLISION_SPARE_PER_LOSS * lost), MAX_VARIANTS - need)
 
@@ -539,18 +577,23 @@ def _text_problems(where: str, text: str, item: Mapping[str, Any], names: set[st
         return [f"{where}: {text!r} is a vendor or seller only; name the thing bought"]
     if _PRICE_TEXT.search(text):
         out.append(f"{where}: {text!r} states a price")
-    rendered = text
+    out.extend(_pack_problems(where, text, item))
+    out.extend(f"{where}: {text!r}: {p}" for p in text_violations(text.replace(PCS, "9999")))
+    return out
+
+
+def _pack_problems(where: str, text: str, item: Mapping[str, Any]) -> list[str]:
+    """The pack-size wording rules for one text: where `{pcs}` may go, and no literal pack size or quantity."""
+    out = []
     if PCS in text:
-        rendered = text.replace(PCS, "9999")
         if item.get("goods") != packs.PACK_GOODS:
             out.append(f"{where}: {text!r} uses {PCS} on an item whose goods is not \"stock\"")
-        elif text.count(PCS) > 1 or not packs.states_pack(rendered, 9999):
+        elif text.count(PCS) > 1 or not packs.states_pack(text.replace(PCS, "9999"), 9999):
             out.append(f"{where}: {text!r} must state the pack once as pieces, \"pack of {PCS}\" or \"box of {PCS}\"")
     if _BRACES.search(text.replace(PCS, "")):
         out.append(f"{where}: {text!r} has a brace outside the {PCS} placeholder")
     if _PACK_TEXT.search(text.replace(PCS, "")):
         out.append(f"{where}: {text!r} states a pack size or quantity; use {PCS} for a stock item's pack size")
-    out.extend(f"{where}: {text!r}: {p}" for p in text_violations(rendered))
     return out
 
 
