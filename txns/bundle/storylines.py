@@ -5,7 +5,9 @@
             "burst_days"?: [min, max],                    days a project burst lasts, 1 <= min <= max <= 92
             "bursts_per_quarter"?: number >= 0,           expected bursts in a quarter of weight-1.0 months
             "quiet_days"?: int >= 0,                      least quiet days between one burst's end and the next start
-            "parties_per_quarter"?: number >= 0}}         expected party days in a quarter of weight-1.0 months
+            "parties_per_quarter"?: number >= 0,          expected party days in a quarter of weight-1.0 months
+            "archetype_overrides"?: {primary: archetype}}  FR-E3: the storyline's items whose catalog
+                                                           archetype is `primary` run as `archetype`
 
 `month_weights` shape every item of the storyline (`txns.engine.calendar.day_shape`)
 and the start of its bursts. The burst keys are read by project-burst items
@@ -19,6 +21,15 @@ rows of an item a day up to the item's cap, instead of in bursts.
 A seasonal storyline (parties, a festival trip) gives its off-season months
 weight 0; petty spend and the subscription stack leave `month_weights` out and
 run all year.
+
+`archetype_overrides` (FR-E3: one primary archetype per catalog item, overridable
+per storyline): for example `{"petty_daily": "project_burst"}` makes a festival
+storyline's petty items occur in its bursts. The catalog keeps the primary
+archetype (`Item.raw["archetype"]`); `Item.archetype` is the one in effect, which
+the engine, gap-rule defaults, bundle event rules, gates and scorecard all use.
+Override names are checked like catalog archetypes (unknown ones exit 4 in
+`generate` and fail promotion gate 7); the item's params must suit the archetype
+in effect.
 """
 
 from __future__ import annotations
@@ -70,12 +81,24 @@ def check_settings(where: str, entry: Mapping[str, Any]) -> None:
         raise _bad(where, "`quiet_days` must be a whole number of days >= 0")
 
 
+def archetype_overrides(entry: Mapping[str, Any]) -> Mapping[str, str]:
+    """A storyline's `archetype_overrides` (primary archetype -> archetype in effect); {} when absent."""
+    return entry.get("archetype_overrides") or {}
+
+
 def check(storylines: Mapping[str, Any], rules: Mapping[str, Any]) -> None:
     for name in sorted(storylines):
         entry = storylines[name]
+        where = f"storyline `{name}`"
         if not isinstance(entry, dict):
-            raise _bad(f"storyline `{name}`", "settings must be a table")
-        check_settings(f"storyline `{name}`", entry)
+            raise _bad(where, "settings must be a table")
+        check_settings(where, entry)
+        overrides = entry.get("archetype_overrides")
+        if overrides is not None and (
+            not isinstance(overrides, dict)
+            or not all(isinstance(k, str) and k and isinstance(v, str) and v for k, v in overrides.items())
+        ):
+            raise _bad(where, "`archetype_overrides` must map archetype names to archetype names")
     archetypes = rules.get("archetypes") if isinstance(rules, dict) else None
     burst_rules = archetypes.get("project_burst") if isinstance(archetypes, dict) else None
     if isinstance(burst_rules, dict):
