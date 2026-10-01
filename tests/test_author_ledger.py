@@ -65,6 +65,7 @@ class AuthorCase(unittest.TestCase):
         for f in fragments:
             self.assertIn(f, r.stderr)
         self.assertFalse((self.ws.cwd / REFERENCE).exists())
+        self.assertEqual(self.ws.llm.requests, [], "no LLM call made")  # T33
 
     def edit_ledger(self, old: str, new: str, name: str = LEDGER_2024, count: int = 1) -> None:
         path = self.ws.cwd / "inputs" / "ledgers" / name
@@ -89,6 +90,7 @@ class ApiKeyTest(AuthorCase):
                 self.assert_exit_2(r, "OPENROUTER_API_KEY")
                 self.assertNotIn("not_a_key", r.stderr)
                 self.assertFalse((self.ws.cwd / ".txns").exists())
+                self.assertEqual(self.ws.llm.requests, [])
 
     def test_key_is_never_written(self):  # FR-C1
         self.ws.install_author_inputs()

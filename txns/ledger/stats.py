@@ -50,6 +50,12 @@ class SpendRow:
     unit_price: int  # centavos
     item_text: str  # "" when textless
     subscription: bool
+    vendor: str = ""  # description before the first " - " (a name: only txns.privacy reads it)
+
+
+def vendor(description: str) -> str:
+    """The vendor part of "Vendor - item text" (the whole description when it has no item)."""
+    return description.split(" - ", 1)[0].strip()
 
 
 def item_text(description: str) -> str:
@@ -81,6 +87,7 @@ def spend_row(row: LedgerRow, rules: SpendRules) -> SpendRow:
         unit_price=row.debit // qty,
         item_text=text,
         subscription=row.category in rules.subscription_categories,
+        vendor=vendor(row.description),
     )
 
 

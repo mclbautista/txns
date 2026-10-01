@@ -3,7 +3,7 @@
 Layout, one record per CSV row (quoted fields may span lines):
 
     Account Transactions                       title
-    <organisation name>                        title (not kept: it is a name)
+    <organisation name>                        title (kept only as a name to scrub)
     For the period 1 January 2024 to 31 December 2024
     (blank)
     Date,Source,Description,Reference,Debit,Credit,Running Balance,Gross,Tax
@@ -75,6 +75,7 @@ class Ledger:
     end: date
     rows: tuple[LedgerRow, ...]
     categories: tuple[str, ...]  # headings in file order
+    organisation: str = ""  # title line 2; a name: only the scrubber (txns.privacy) reads it
 
 
 def _date(day: str, month: str, year: str, months: dict[str, int]) -> date | None:
@@ -251,7 +252,10 @@ def parse(text: str, name: str) -> Ledger:
 
     if grand is None:
         raise LedgerError(f"{where(last_line)}: no grand total row (unrecognised layout)")
-    return Ledger(name=name, start=start, end=end, rows=tuple(rows), categories=tuple(categories))
+    return Ledger(
+        name=name, start=start, end=end, rows=tuple(rows), categories=tuple(categories),
+        organisation=" ".join(f1[0].split()),
+    )
 
 
 def read(path: Path) -> tuple[Ledger, bytes]:
