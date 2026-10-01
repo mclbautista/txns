@@ -11,6 +11,7 @@ descriptive variants) each carry one text that matches, at descriptive[2], [1] a
 reported failure.
 """
 
+import json
 import re
 import unittest
 
@@ -93,26 +94,27 @@ class RepeatedCollisionTest(CollisionCase):
         saved = self.saved("variants-01")["draft"]
         for v in saved["items"]:
             self.assertGreaterEqual(len(v["descriptive"]) + len(v["vendor"]), 3)
-        three = [v for v in saved["items"] if any(t.endswith(" extra") for t in v["descriptive"])]
-        self.assertEqual(len(three), 3)
-        for v in three:
-            self.assertEqual(len(v["descriptive"]), 4)  # five asked for, the colliding one dropped
+        for v in [v for v in saved["items"] if v["terse"]][:3]:  # the items that carried the matches
+            # the texts kept from the first answer (one match dropped), then new ones only until the item has its three
+            self.assertEqual(len(v["descriptive"]), 3)
+            self.assertEqual(len(set(v["descriptive"])), 3)
+            self.assertFalse(any(t.endswith(tuple(COLLIDING)) for t in v["descriptive"]))
 
     def test_the_re_ask_is_targeted_and_never_repeats_a_matching_text(self):
         fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1, spare=2)))
         self.ok(fake)
         first, again = [q for q in fake.requests if q.part == "variants-01"]
         self.assertEqual(first.problems, ())
-        self.assertIsNotNone(again.previous)  # the answer minus the matching texts, safe to send back
-        told = [p for p in again.problems if "coincides with a business name from the books" in p]
-        self.assertEqual(len(told), 3)  # one line per affected item, by location only
-        for p in told:
-            self.assertRegex(p, r"^\$\.items\[\d+\] \(`\w+`\): 1 variant text removed")
-        self.assertEqual(len(again.problems), 6)  # and the 3 items left under the minimum
+        self.assertEqual(len(again.input["items"]), 3)  # only the three items left under the minimum (issue #36)
+        self.assertLess(len(again.input["items"]), len(first.input["items"]))
+        self.assertEqual((again.problems, again.previous), ((), None))  # nothing of the first answer is sent back
+        for item in again.input["items"]:
+            self.assertEqual(item["need"], {"descriptive": 3, "terse": 0})  # one short, plus the spare of two
+            self.assertEqual(len(item["have"]["descriptive"]), 2)
+        sent = json.dumps(again.content(), ensure_ascii=False)
         for text in COLLIDING:
-            self.assertNotIn(text, again.previous)
-            self.assertNotIn(text, " ".join(again.problems))
-        self.assertEqual((again.input, again.schema, again.model), (first.input, first.schema, first.model))
+            self.assertNotIn(text, sent)
+        self.assertEqual((again.model, again.part), (first.model, first.part))
 
     def test_diagnostics_are_by_location_only(self):
         fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1, spare=2)))
@@ -189,7 +191,7 @@ def _high(round_: int):
     items differently in the re-ask, so each answer alone is short but the two together are not."""
     def edit(doc):
         chosen = [v for v in doc["items"] if v["terse"]][:6]
-        assert len(chosen) == 6
+        assert len(chosen) == (6 if round_ == 0 else 2)  # the re-ask asks for the two short items only (issue #36)
         for n, v in enumerate(chosen):
             base = v["id"].replace("_", " ")
             v["vendor"] = []
@@ -238,27 +240,22 @@ class HighCollisionTest(CollisionCase):
         for v in chosen:
             self.assertFalse(any("delivery r" in t for t in v["descriptive"] + v["terse"]))
 
-    def test_the_surplus_asked_grows_with_what_an_item_lost(self):
+    def test_only_the_two_short_items_are_asked_and_only_for_the_kind_they_lack(self):
         fake = self.script()
         self.ok(fake)
-        _, again = [q for q in fake.requests if q.part == "variants-01"]
-        lost_two = [p for p in again.problems if "2 variant texts removed" in p]
-        lost_one = [p for p in again.problems if "1 variant text removed" in p]
-        self.assertEqual((len(lost_two), len(lost_one)), (4, 2))
-        for p in lost_two:
-            self.assertIn("4 more descriptive variants", p)  # twice what it lost, never less than the old spare
-        for p in lost_one:
-            self.assertRegex(p, r"2 more (descriptive|terse) variants")
-        self.assertNotIn("delivery r", " ".join(again.problems) + (again.previous or ""))
+        first, again = [q for q in fake.requests if q.part == "variants-01"]
+        self.assertGreater(len(first.input["items"]), 2)
+        needs = [i["need"] for i in again.input["items"]]
+        self.assertEqual(needs, [{"descriptive": 0, "terse": 3}, {"descriptive": 3, "terse": 0}])
+        self.assertNotIn("delivery r", json.dumps(again.content()))
 
     def test_a_surplus_never_asks_past_the_most_variants_an_item_may_have(self):
         fake = self.script()
         self.ok(fake)
         _, again = [q for q in fake.requests if q.part == "variants-01"]
-        for p in again.problems:
-            for n, kind in re.findall(r"(\d+) more (descriptive|terse)", p):
-                need = parts.MIN_DESCRIPTIVE if kind == "descriptive" else parts.MIN_TERSE
-                self.assertLessEqual(int(n) + need, parts.MAX_VARIANTS)
+        for item in again.input["items"]:
+            for kind in ("descriptive", "terse"):
+                self.assertLessEqual(len(item["have"][kind]) + item["need"][kind], parts.MAX_VARIANTS)
 
     def test_what_is_still_short_after_both_answers_still_exits_4(self):
         fake = ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), Reply(edit=_collide(1)))
@@ -312,12 +309,13 @@ class MixedFailureTest(CollisionCase):
             self.assertGreaterEqual(len(v["descriptive"]) + len(v["vendor"]), 3)
             self.assertFalse(any("{pcs}" in t and "meters" in t for t in v["descriptive"] + v["terse"]))
 
-    def test_the_second_ask_carries_only_locations_and_the_answer_minus_matches(self):
+    def test_the_second_ask_carries_no_discarded_text(self):
         fake = self.script()
         self.ok(fake)
         _, again = [q for q in fake.requests if q.part == "variants-01"]
+        self.assertEqual((again.problems, again.previous), ((), None))
         for text in COLLIDING:
-            self.assertNotIn(text, again.previous + " ".join(again.problems))
+            self.assertNotIn(text, json.dumps(again.content()))
 
     def test_the_dropped_wording_is_reported_by_location_only(self):
         r = self.ok(self.script())

@@ -177,7 +177,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     },
 }
 
-_COMMON = (
+COMMON = (
     "You draft part of a bundle for a generator of realistic spend-ledger rows for a small "
     "post-production studio in the Philippines. The input is JSON: aggregates and item-text "
     "patterns from the studio's own books, with every vendor and person name already replaced. "
@@ -185,7 +185,7 @@ _COMMON = (
     "Never give a price, an amount, a cost or a pack size anywhere: prices come from the books, not from you. "
 )
 INSTRUCTIONS: dict[str, str] = {
-    "storylines": _COMMON + (
+    "storylines": COMMON + (
         "Propose the storylines: the few recurring reasons this studio spends (for example office pantry, "
         "errands, the software stack, post-production projects, the year-end party). Give each a snake_case "
         "name and a one-sentence description. A seasonal storyline gives its off-season months weight 0 in "
@@ -193,7 +193,7 @@ INSTRUCTIONS: dict[str, str] = {
         "bursts_per_quarter and quiet_days; a party storyline gives parties_per_quarter (its project_burst "
         "items then fall on party days, several rows a day). Leave out settings you have no reason to set."
     ),
-    "catalog": _COMMON + (
+    "catalog": COMMON + (
         "Propose catalog items for every category in the input, at least one per category and at most "
         f"{MAX_ITEMS_PER_CATEGORY}: the distinct things the studio buys there, judged from the item texts. "
         "Each item has a snake_case id not in taken_item_ids, its category (copied exactly), a storyline from "
@@ -206,7 +206,7 @@ INSTRUCTIONS: dict[str, str] = {
         "unnamed seller. Vendor names must be copied exactly from the category vendors in the input; never "
         "invent one. Reuse known_sellers' ids for the same vendor, and give every vendor one id only."
     ),
-    "variants": _COMMON + (
+    "variants": COMMON + (
         "Write the item text variants for every item in the input, in the voice of the item texts shown "
         "for its category: short, plain, ASCII, at most 100 characters. Per item: at least "
         f"{MIN_DESCRIPTIVE} descriptive variants that name the thing bought, and at least {MIN_TERSE} terse "
@@ -217,7 +217,7 @@ INSTRUCTIONS: dict[str, str] = {
         "one item only. Never state a price or a pack size; for a stock item a variant may mark where the "
         f"pack size goes with {PCS} (\"Ballpens, box of {PCS}\")."
     ),
-    "vocabulary": _COMMON + (
+    "vocabulary": COMMON + (
         "Propose the date-tail formats a bookkeeper appends when logging a receipt days after the purchase "
         "(\"Delivery fee (Oct 28, 2026)\"). Placeholders: {d} {dd} day, {m} {mm} month number, {mon} {month} "
         "month name, {yy} {yyyy} year. Each format names the day and the month, is printable ASCII without "
@@ -269,7 +269,7 @@ def plan(payload: Mapping[str, Any]) -> list[Part]:
     ]
 
 
-def _categories(payload: Mapping[str, Any], names: tuple[str, ...]) -> list[dict]:
+def categories_of(payload: Mapping[str, Any], names: tuple[str, ...]) -> list[dict]:
     by_name = {c["category"]: c for c in payload["categories"]}
     return [by_name[n] for n in names]
 
@@ -293,7 +293,7 @@ def request_input(part: Part, payload: Mapping[str, Any], drafts: Drafts) -> dic
         }
     if part.kind == "catalog":
         return {
-            "categories": _categories(payload, part.categories),
+            "categories": categories_of(payload, part.categories),
             "storylines": [{"name": s["name"], "description": s["description"]} for s in drafts.storylines],
             "archetypes": ARCHETYPES,
             "classes": list(CLASSES),
@@ -304,7 +304,7 @@ def request_input(part: Part, payload: Mapping[str, Any], drafts: Drafts) -> dic
         return {
             "categories": [
                 {k: c.get(k) for k in ("category", "rows", "textless_rows", "item_texts")}
-                for c in _categories(payload, part.categories)
+                for c in categories_of(payload, part.categories)
             ],
             "items": [
                 {k: item[k] for k in ("id", "category", "class", "goods", "sellers") if k in item}
@@ -409,7 +409,7 @@ def without_pack_wording(part: Part, document: Any, drafts: Drafts) -> tuple[Any
 
         cleaned, items = without_pack_wording(part, document, drafts)   # items: [item position, ...] per dropped text
 
-    Only the pack-size wording rules (`_pack_problems`: where `{pcs}` may go, no literal pack size or
+    Only the pack-size wording rules (`pack_problems`: where `{pcs}` may go, no literal pack size or
     quantity such as a length in meters) are applied, to each text on its own. The text is dropped and
     never sent back or saved; `problems` then validates what remains in full, so an item left short, a
     price, a length, a duplicate or any other fault still fails the draft. Meant for the answers of a draft
@@ -432,8 +432,8 @@ def without_pack_wording(part: Part, document: Any, drafts: Drafts) -> tuple[Any
             for entry in item[kind]:
                 text = entry.get("text") if isinstance(entry, dict) else entry
                 if kind == "vendor" and isinstance(text, str):
-                    text = _body(text)
-                if isinstance(text, str) and _pack_problems("", text, known):
+                    text = body(text)
+                if isinstance(text, str) and pack_problems("", text, known):
                     dropped.append(i)
                 else:
                     kept.append(entry)
@@ -492,26 +492,26 @@ def with_survivors(part: Part, earlier: Any, later: Any, drafts: Drafts) -> Any:
     return {**later, "items": merged}
 
 
-def _body(text: str) -> str:
+def body(text: str) -> str:
     """The wording of a vendor-prefixed text (what follows the vendor), else the text."""
     return text.partition(SEPARATOR)[2] or text
 
 
-_ITEM_KEYS = {"id", "descriptive", "terse", "vendor"}
+ITEM_KEYS = {"id", "descriptive", "terse", "vendor"}
 
 
-def _answer_items(part: Part, document: Any, batch: Mapping[str, Any]) -> dict[str, dict] | None:
+def answer_items(part: Part, document: Any, batch: Mapping[str, Any]) -> dict[str, dict] | None:
     """The items of a well-formed variants answer by id, else None.
 
     Well-formed is the structure only: one `items` list of closed objects, each with a catalog id of this
-    call (once) and the three lists. What the texts say is checked one text at a time by `_usable_entries`."""
+    call (once) and the three lists. What the texts say is checked one text at a time by `usable_entries`."""
     if part.kind != "variants" or not isinstance(document, dict) or set(document) != {"items"}:
         return None
     if not isinstance(document["items"], list):
         return None
     out: dict[str, dict] = {}
     for item in document["items"]:
-        if not isinstance(item, dict) or set(item) != _ITEM_KEYS:
+        if not isinstance(item, dict) or set(item) != ITEM_KEYS:
             return None
         item_id = item["id"]
         if not isinstance(item_id, str) or item_id not in batch or item_id in out:
@@ -522,7 +522,7 @@ def _answer_items(part: Part, document: Any, batch: Mapping[str, Any]) -> dict[s
     return out
 
 
-def _usable_entries(item: Mapping[str, Any], source: Mapping[str, Any], own_sellers: Mapping[str, Any],
+def usable_entries(item: Mapping[str, Any], source: Mapping[str, Any], own_sellers: Mapping[str, Any],
                     names: set[str]) -> dict[str, list] | None:
     """The entries of one answer's item that are valid texts on their own, in the answer's order.
 
@@ -540,10 +540,10 @@ def _usable_entries(item: Mapping[str, Any], source: Mapping[str, Any], own_sell
                         or not re.fullmatch(_SELLER_ID["pattern"], entry["seller"]):
                     return None
                 faults = _vendor_problems("", entry, item, own_sellers, names)
-                wording = _pack_problems("", _body(text).strip(), item)
+                wording = pack_problems("", body(text).strip(), item)
             else:
-                faults = _plain_problems("", kind, text, item, names)
-                wording = _pack_problems("", text, item)
+                faults = plain_problems("", kind, text, item, names)
+                wording = pack_problems("", text, item)
             if not faults:
                 out[kind].append(entry)
             elif any(f not in wording for f in faults):
@@ -551,11 +551,54 @@ def _usable_entries(item: Mapping[str, Any], source: Mapping[str, Any], own_sell
     return out
 
 
-def _short(lists: Mapping[str, list], big_ticket: bool) -> bool:
-    """True when an item's chosen texts do not meet the counts (vendor texts are a minority by construction)."""
-    descriptive = len(lists["descriptive"]) + len(lists["vendor"])
-    return (not lists["descriptive"] or descriptive < MIN_DESCRIPTIVE
-            or (not big_ticket and len(lists["terse"]) < MIN_TERSE))
+class Pick:
+    """The texts chosen for one catalog item so far: taken from pools of candidates, in the pool's order."""
+
+    def __init__(self, item: Mapping[str, Any]):
+        self.big_ticket = item["class"] == "big_ticket"
+        self.kinds = ("descriptive", "vendor") + (() if self.big_ticket else ("terse",))
+        self.lists: dict[str, list] = {"descriptive": [], "terse": [], "vendor": []}
+        self.seen: set[str] = set()  # casefolded texts of the item so far
+
+    def shortfall(self) -> dict[str, int]:
+        """How many more texts of each kind group the item needs to meet its counts (vendor texts count as
+        descriptive but never replace the first plain one)."""
+        lists = self.lists
+        descriptive = max(MIN_DESCRIPTIVE - len(lists["descriptive"]) - len(lists["vendor"]),
+                          0 if lists["descriptive"] else 1)
+        terse = 0 if self.big_ticket else max(MIN_TERSE - len(lists["terse"]), 0)
+        return {"descriptive": descriptive, "terse": terse}
+
+    def short(self) -> bool:
+        return any(self.shortfall().values())
+
+    def take(self, pool: Mapping[str, list], claims: Mapping[str, set[tuple[str, bool]]], *, only_if_short: bool) -> None:
+        """Add the pool's valid texts, skipping repeats of the item, texts another item claims (a terse text
+        may be shared) and entries past `MAX_VARIANTS`; vendor-prefixed texts stay a minority. With
+        `only_if_short` a kind is added to only while it is under its counts."""
+        for kind in self.kinds:
+            group = "terse" if kind == "terse" else "descriptive"
+            for entry in pool[kind]:
+                if only_if_short and not self.shortfall()[group]:
+                    break
+                limit = min(MAX_VARIANTS, len(self.lists["descriptive"]) - 1) if kind == "vendor" else MAX_VARIANTS
+                if len(self.lists[kind]) >= limit:
+                    break
+                text = entry["text"] if kind == "vendor" else entry
+                users = claims.get(text)
+                if text.casefold() in self.seen or (users and not (kind == "terse" and all(t for _, t in users))):
+                    continue
+                self.lists[kind].append(entry)
+                self.seen.add(text.casefold())
+
+
+def claim(claims: dict[str, set[tuple[str, bool]]], item_id: str, lists: Mapping[str, list]) -> None:
+    """Record the chosen texts of an item, so no later item takes one of them (a terse text may be shared)."""
+    for kind in ("descriptive", "terse"):
+        for text in lists[kind]:
+            claims.setdefault(text, set()).add((item_id, kind == "terse"))
+    for x in lists["vendor"]:
+        claims.setdefault(x["text"], set()).add((item_id, False))
 
 
 def _choose_texts(item: Mapping[str, Any], pools: tuple[Callable[[], Any], Callable[[], Any]],
@@ -563,37 +606,45 @@ def _choose_texts(item: Mapping[str, Any], pools: tuple[Callable[[], Any], Calla
     """One item's texts: all of the first pool's (valid, not repeated, within the cap), then the second
     pool's only while the item is under its counts. A pool is loaded when first needed. None when the item
     cannot be completed or a pool has a fault that is not repaired."""
-    big_ticket = item["class"] == "big_ticket"
-    kinds = ("descriptive", "vendor") + (() if big_ticket else ("terse",))
-    lists: dict[str, list] = {"descriptive": [], "terse": [], "vendor": []}
-    seen: set[str] = set()  # casefolded texts of the item so far
-
-    def take(kind: str, entries: list, *, only_if_short: bool) -> None:
-        for entry in entries:
-            if only_if_short and not _short(lists, big_ticket):
-                return
-            limit = min(MAX_VARIANTS, len(lists["descriptive"]) - 1) if kind == "vendor" else MAX_VARIANTS
-            if len(lists[kind]) >= limit:
-                return
-            text = entry["text"] if kind == "vendor" else entry
-            users = claims.get(text)
-            if text.casefold() in seen or (users and not (kind == "terse" and all(t for _, t in users))):
-                continue
-            lists[kind].append(entry)
-            seen.add(text.casefold())
-
+    pick = Pick(item)
     first = pools[0]()
     if first is None:
         return None
-    for kind in kinds:
-        take(kind, first[kind], only_if_short=False)
-    if _short(lists, big_ticket):
+    pick.take(first, claims, only_if_short=False)
+    if pick.short():
         second = pools[1]()
         if second is None:
             return None
-        for kind in kinds:
-            take(kind, second[kind], only_if_short=True)
-    return None if _short(lists, big_ticket) else lists
+        pick.take(second, claims, only_if_short=True)
+    return None if pick.short() else pick.lists
+
+
+def vendor_names(payload: Mapping[str, Any], drafts: Drafts) -> set[str]:
+    """Casefolded vendor and seller names an item's variant text may not be reduced to."""
+    return {v.casefold() for v in payload_vendors(payload)} | {s.casefold() for s in drafts.sellers}
+
+
+def answer_pool(item: Mapping[str, Any], answer: Mapping[str, dict], names: set[str]) -> dict[str, list] | None:
+    """The valid entries of one item in a well-formed answer's items (`answer_items`); an item the answer
+    leaves out has an empty pool, and one with a fault that is not repaired has none (None)."""
+    if item["id"] not in answer:
+        return {"descriptive": [], "terse": [], "vendor": []}
+    return usable_entries(item, answer[item["id"]], {s["id"]: s["vendor"] for s in item["sellers"]}, names)
+
+
+def entry_faults(where: str, item: Mapping[str, Any], source: Mapping[str, list], names: set[str]) -> list[str]:
+    """The faults of one item's plain texts (`source`'s descriptive and terse lists) that `usable_entries` does not
+    repair, by location in the answer; vendor-prefixed texts are not looked at."""
+    out: list[str] = []
+    for kind in ("descriptive", "terse"):
+        for j, text in enumerate(source[kind]):
+            at = f"{where}.{kind}[{j}]"
+            if not isinstance(text, str) or not 1 <= len(text) <= MAX_TEXT:
+                out.append(f"{at}: not a text of 1 to {MAX_TEXT} characters")
+                continue
+            wording = pack_problems(at, text, item)
+            out.extend(f for f in plain_problems(at, kind, text, item, names) if f not in wording)
+    return out
 
 
 def recover_variants(part: Part, first: Any, first_dropped: list[tuple[int, str, int]], later: Any,
@@ -605,16 +656,16 @@ def recover_variants(part: Part, first: Any, first_dropped: list[tuple[int, str,
         document, changed = built       # `problems` must still pass on `document`
 
     For a draft that lost texts to name coincidences and was then asked once more (issue #35). Both answers
-    must be well-formed (`_answer_items`: no unknown or repeated items, no extra keys), else None, and each is
+    must be well-formed (`answer_items`: no unknown or repeated items, no extra keys), else None, and each is
     a pool of candidates. Per catalog item of the call (`_choose_texts`):
 
     * the texts are those of one answer's item, the re-ask answer's when the item lost texts to a coincidence
       in the first answer (what it was asked to reword), else the first answer's, so an item that lost
       nothing keeps what it had even when the re-ask copy of it is malformed;
     * a text counts only if it is valid on its own (the same rules as `problems`), is not a repeat in the item
-      and does not clash with an earlier draft or another item (`_uses`); the rest are skipped, and so are
+      and does not clash with an earlier draft or another item (`used_texts`); the rest are skipped, and so are
       entries past `MAX_VARIANTS` in a kind. The one invalid text skipped is wording that breaks the pack-size
-      rules (`_pack_problems`, as in `without_pack_wording`); a text with any other fault (price, length,
+      rules (`pack_problems`, as in `without_pack_wording`); a text with any other fault (price, length,
       characters, vendor placement, not a text) in a pool that is used makes the recovery give up;
     * the other answer's texts are added, in its order, only while the item is under its counts, and
       vendor-prefixed texts stay a minority.
@@ -623,47 +674,41 @@ def recover_variants(part: Part, first: Any, first_dropped: list[tuple[int, str,
     item. The caller validates the result in full (`problems`); no text is taken that neither answer carried.
     Item order is the catalog's."""
     batch = {i: item for i, item in drafts.items.items() if item["category"] in part.categories}
-    before, after = _answer_items(part, first, batch), _answer_items(part, later, batch)
+    before, after = answer_items(part, first, batch), answer_items(part, later, batch)
     if before is None or after is None:
         return None
     first_items = first["items"] if isinstance(first, dict) and isinstance(first.get("items"), list) else []
     reworded = {first_items[i]["id"] for i, _, _ in first_dropped
                 if i < len(first_items) and isinstance(first_items[i], dict) and "id" in first_items[i]}
-    names = {v.casefold() for v in payload_vendors(payload)} | {s.casefold() for s in drafts.sellers}
-    claims = _uses(drafts)  # text -> {(item id, is terse)}, grows as items are chosen
+    names = vendor_names(payload, drafts)
+    claims = used_texts(drafts)  # text -> {(item id, is terse)}, grows as items are chosen
     chosen: dict[str, dict] = {}
     changed: list[str] = []
     for item_id in sorted(batch, key=lambda i: i in reworded):  # stable: catalog order within each group
         item = batch[item_id]
-        own_sellers = {s["id"]: s["vendor"] for s in item["sellers"]}
-
-        def pool(source: dict[str, dict], item_id=item_id, item=item, own_sellers=own_sellers):
-            if item_id not in source:
-                return {"descriptive": [], "terse": [], "vendor": []}
-            return _usable_entries(item, source[item_id], own_sellers, names)
-
         primary, other = (after, before) if item_id in reworded else (before, after)
-        lists = _choose_texts(item, (lambda: pool(primary), lambda: pool(other)), claims)
+        lists = _choose_texts(item, (lambda: answer_pool(item, primary, names), lambda: answer_pool(item, other, names)), claims)
         if lists is None:
             return None
         chosen[item_id] = {"id": item_id, **lists}
         if chosen[item_id] != primary.get(item_id):
             changed.append(item_id)
-        for kind in ("descriptive", "terse"):
-            for text in lists[kind]:
-                claims.setdefault(text, set()).add((item_id, kind == "terse"))
-        for x in lists["vendor"]:
-            claims.setdefault(x["text"], set()).add((item_id, False))
+        claim(claims, item_id, lists)
     return {"items": [chosen[i] for i in batch]}, [i for i in batch if i in changed]
+
+
+def leak_problems(document: Any, index: NameIndex) -> list[str]:
+    """One line per ledger name in `document` outside the brand allowlist, by location only."""
+    return [f"{where}: carries a ledger name that is not on the brand allowlist" for where in find_in_object(document, index)]
 
 
 def problems(part: Part, document: Any, payload: Mapping[str, Any], drafts: Drafts, index: NameIndex) -> list[str]:
     """Why `document` is not a valid draft for `part` ([] when it is)."""
     # A draft carries no ledger name outside the allowlist (FR-C2, FR-D2 gate 3). Checked
     # first and reported alone, by location only, so no message quotes the name.
-    leaks = find_in_object(document, index)
+    leaks = leak_problems(document, index)
     if leaks:
-        return [f"{where}: carries a ledger name that is not on the brand allowlist" for where in leaks]
+        return leaks
     bad = _forbidden_keys(document) + schema_errors(document, SCHEMAS[part.kind])
     if bad:
         return bad
@@ -743,12 +788,12 @@ def _text_problems(where: str, text: str, item: Mapping[str, Any], names: set[st
         return [f"{where}: {text!r} is a vendor or seller only; name the thing bought"]
     if _PRICE_TEXT.search(text):
         out.append(f"{where}: {text!r} states a price")
-    out.extend(_pack_problems(where, text, item))
+    out.extend(pack_problems(where, text, item))
     out.extend(f"{where}: {text!r}: {p}" for p in text_violations(text.replace(PCS, "9999")))
     return out
 
 
-def _pack_problems(where: str, text: str, item: Mapping[str, Any]) -> list[str]:
+def pack_problems(where: str, text: str, item: Mapping[str, Any]) -> list[str]:
     """The pack-size wording rules for one text: where `{pcs}` may go, and no literal pack size or quantity."""
     out = []
     if PCS in text:
@@ -763,7 +808,7 @@ def _pack_problems(where: str, text: str, item: Mapping[str, Any]) -> list[str]:
     return out
 
 
-def _uses(drafts: Drafts) -> dict[str, set[tuple[str, bool]]]:
+def used_texts(drafts: Drafts) -> dict[str, set[tuple[str, bool]]]:
     """text -> {(item id, is terse)} over the variants of the earlier drafts."""
     uses: dict[str, set[tuple[str, bool]]] = {}
     for item_id, v in drafts.variants.items():
@@ -792,7 +837,7 @@ def _vendor_problems(where: str, x: Mapping[str, Any], item: Mapping[str, Any], 
     return out
 
 
-def _plain_problems(where: str, kind: str, text: str, item: Mapping[str, Any], names: set[str]) -> list[str]:
+def plain_problems(where: str, kind: str, text: str, item: Mapping[str, Any], names: set[str]) -> list[str]:
     """The rules for one descriptive or terse variant of `item`, on its own."""
     out = []
     head, sep, _ = text.partition(SEPARATOR)
@@ -807,12 +852,12 @@ def _plain_problems(where: str, kind: str, text: str, item: Mapping[str, Any], n
 def _variant_problems(part, doc, payload, drafts) -> list[str]:
     out = []
     batch = {i: item for i, item in drafts.items.items() if item["category"] in part.categories}
-    names = {v.casefold() for v in payload_vendors(payload)} | {s.casefold() for s in drafts.sellers}
+    names = vendor_names(payload, drafts)
     ids = [x["id"] for x in doc["items"]]
     missing = [i for i in batch if i not in ids]
     if missing:
         out.append(f"$.items: no variants for {', '.join(f'`{i}`' for i in missing)}")
-    uses = _uses(drafts)  # text -> {(item id, is terse)}, earlier drafts included
+    uses = used_texts(drafts)  # text -> {(item id, is terse)}, earlier drafts included
     seen_ids = set()
     for i, v in enumerate(doc["items"]):
         where = f"$.items[{i}]"
@@ -842,7 +887,7 @@ def _variant_problems(part, doc, payload, drafts) -> list[str]:
             texts.append((x["text"], False))
         for kind in ("descriptive", "terse"):
             for j, text in enumerate(v[kind]):
-                out.extend(_plain_problems(f"{where}.{kind}[{j}]", kind, text, item, names))
+                out.extend(plain_problems(f"{where}.{kind}[{j}]", kind, text, item, names))
                 texts.append((text, kind == "terse"))
         seen = set()
         for text, terse in texts:

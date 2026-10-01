@@ -4,6 +4,12 @@ A first answer that loses texts to accidental ledger-name matches and its one re
 pools of candidate texts. A repeated text in an unrelated item, or an affected item that comes back
 with more than 12 entries, no longer fails a draft that the two answers can still complete. Same
 synthetic blocked words as `test_author_collisions` ("Delivery" and "Snacks"); scripted LLM, no network.
+
+Since issue #36 a first answer that leaves items short is re-asked for those items only (see
+`test_author_targeted`). These tests cover the whole-batch re-ask that remains: a draft that lost texts
+to coincidences but whose items are all still complete, and so is invalid for another reason (here a
+repeated text in an unrelated item, `_first`). Its re-ask answer is chosen item by item with
+`parts.recover_variants`, as before.
 """
 
 import shutil
@@ -46,6 +52,18 @@ def _over_cap(doc):
     v["descriptive"][13] = f"{base} {EXTRA}"
 
 
+def _first(doc):
+    """The first answer: three items lose one text to a match but keep three (four were given), and a sixth
+    item lists one of its variants twice, so the draft is invalid without any item being short."""
+    _collide(0, spare=1)(doc)
+    v = _with_terse(doc, 5)
+    v["descriptive"][1] = v["descriptive"][0]
+
+
+UNRELATED = (3, 4)  # items the first answer leaves alone; the re-ask answer is edited there
+AFFECTED = (0, 1, 2, 5)  # items whose texts are not simply the default ones in the saved draft
+
+
 def _reask(*edits, spare=2):
     collide = _collide(1, spare=spare)
 
@@ -58,7 +76,7 @@ def _reask(*edits, spare=2):
 
 class RecoveryCase(CollisionCase):
     def script(self, *edits, spare=2):
-        return ScriptedLLM().script("variants-01", Reply(edit=_collide(0)), _reask(*edits, spare=spare))
+        return ScriptedLLM().script("variants-01", Reply(edit=_first), _reask(*edits, spare=spare))
 
     def valid(self, fake):
         """A fresh valid variants draft built from the request the first answer was given."""
@@ -72,6 +90,9 @@ class RecoveryCase(CollisionCase):
 
     def assert_promoted_after_one_re_ask(self, r, fake):
         self.assertEqual(fake.parts().count("variants-01"), 2)  # the existing one re-ask, no more
+        first, again = [q for q in fake.requests if q.part == "variants-01"]
+        self.assertTrue(again.problems)  # no item is short, so this is the whole-batch re-ask
+        self.assertEqual(len(again.input["items"]), len(first.input["items"]))
         self.assertRegex(r.stdout, r"promoted bundles/draft-[0-9a-f]{12}/ \(reviewed: false\)")
         self.assertEqual(len(list((self.ws.cwd / "bundles").iterdir())), 1)
         self.assert_no_collision_text(r, fake)
@@ -102,7 +123,7 @@ class RepeatedTextInUnrelatedItemTest(RecoveryCase):
         self.ok(fake)
         first = self.first_answer(fake)
         saved = {v["id"]: v for v in self.saved("variants-01")["draft"]["items"]}
-        affected = {v["id"] for v in [_with_terse(self.valid(fake), n) for n in range(3)]}
+        affected = {_with_terse(self.valid(fake), n)["id"] for n in AFFECTED}
         self.assertEqual(set(saved), set(first))
         for item_id, v in saved.items():
             if item_id not in affected:
@@ -112,7 +133,7 @@ class RepeatedTextInUnrelatedItemTest(RecoveryCase):
         fake = self.script(_repeat_in_unrelated)
         self.ok(fake)
         saved = {v["id"]: v for v in self.saved("variants-01")["draft"]["items"]}
-        for n in range(3):
+        for n in (0, 1, 2):
             v = saved[_with_terse(self.valid(fake), n)["id"]]
             self.assertGreaterEqual(len(v["descriptive"]) + len(v["vendor"]), 3)
             self.assertEqual(len(v["descriptive"]), len(set(v["descriptive"])))
@@ -165,11 +186,6 @@ class BothDriftsTest(RecoveryCase):
 
 
 class FailClosedTest(RecoveryCase):
-    def test_a_pool_without_enough_safe_texts_exits_4(self):
-        # No spare in the re-ask: each affected item has two usable texts, the same two in both answers.
-        fake = self.script(_repeat_in_unrelated, spare=0)
-        self.assert_fails_closed(fake)
-
     def test_a_repeat_with_no_name_match_anywhere_is_still_a_twice_invalid_answer(self):
         fake = ScriptedLLM().script("variants-01", Reply(edit=_repeat_in_unrelated), Reply(edit=_repeat_in_unrelated))
         self.assert_fails_closed(fake)
@@ -195,7 +211,7 @@ class FailClosedTest(RecoveryCase):
         fake = self.script(_repeat_in_unrelated, _over_cap)
         self.ok(fake)
         pool = set()
-        for edit in (_collide(0), _reask(_repeat_in_unrelated, _over_cap).edit):
+        for edit in (_first, _reask(_repeat_in_unrelated, _over_cap).edit):
             doc = self.valid(fake)
             edit(doc)
             pool |= {t for v in doc["items"] for t in v["descriptive"] + v["terse"] + [x["text"] for x in v["vendor"]]}

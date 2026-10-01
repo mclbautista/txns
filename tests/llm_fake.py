@@ -4,6 +4,7 @@
     fake.script("catalog-01", Fail("timeout"))  # queue outcomes for one part; used before the default
     fake.script("variants-01", Reply(edit=fn))  # fn(document) edits the valid draft before it is sent back
     fake.script("vocabulary", Reply(text="not json"), Reply(document={...}, model="x/y", cost=0.5))
+    fake.script("variants-01", Reply(respond=fn))  # fn(request) builds the document from the request itself
     fake.requests                               # every Request received, failed calls included
     fake.parts()                                # the part names requested, in order
 
@@ -32,6 +33,7 @@ class Reply:
     document: Any = None  # the JSON document to answer with (default: a valid draft)
     text: str | None = None  # raw response text (wins over document)
     edit: Callable[[Any], Any] | None = None  # edits a copy of the valid draft (may return a replacement)
+    respond: Callable[[Request], Any] | None = None  # builds the document from the request (wins over edit)
     model: str | None = None
     cost: float | None = None
 
@@ -70,7 +72,9 @@ class ScriptedLLM:
             text = outcome.text
         else:
             document = outcome.document
-            if document is None:
+            if document is None and outcome.respond is not None:
+                document = outcome.respond(request)
+            elif document is None:
                 document = valid_draft(request)
                 if outcome.edit is not None:
                     edited = outcome.edit(document)
