@@ -17,7 +17,8 @@ response matches its schema) is the drafting step's (`txns.drafting`).
     3  names        no real ledger name anywhere in the bundle, file names included
                     (`txns.privacy.find_in_files`; reports locations only)
     4  items        no duplicate items: no two items share a descriptive text up to
-                    case, spacing and punctuation
+                    case, spacing and punctuation; a vendor-prefixed variant is
+                    compared whole, so sellers may share a generic body after `Vendor - `
     4-6 text        no blank or vendor-only text, every variant names the thing bought,
                     each string one item's (shared terse text only with identical
                     price points), CSV text rules (`txns.bundle.text_rules`)
@@ -96,20 +97,33 @@ def name_index(cwd: Path, ledgers_dir: Path) -> privacy.NameIndex:
 
 
 def duplicate_items(bundle: Bundle) -> list[str]:
-    seen: dict[str, str] = {}
+    plain: dict[str, str] = {}  # key -> item: descriptive texts
+    bodies: dict[str, str] = {}  # key -> item: what follows `Vendor - ` in a vendor variant
+    whole: dict[str, str] = {}  # key -> item: the full vendor-prefixed text
     out = []
+
+    def claim(register: dict[str, str], against: tuple[dict[str, str], ...], item_id: str, text: str, key: str) -> None:
+        """Register the text under the item, reporting an earlier item with the same key in `against`."""
+        for registry in against:
+            other = registry.get(key, item_id)
+            if other != item_id:
+                out.append(f"items `{other}` and `{item_id}` are the same item: both are called {text!r}")
+                break
+        register.setdefault(key, item_id)
+
     for item in bundle.items.values():
-        # A vendor variant names the item after `Vendor - `; one without the separator is
-        # malformed (gate 4-6 reports it) and names nothing here.
-        texts = item.descriptive + tuple(v.text.partition(text_rules.SEPARATOR)[2] for v in item.vendor
-                                         if text_rules.SEPARATOR in v.text)
-        for text in dict.fromkeys(texts):
-            key = words(text)
-            if not key:  # blank or punctuation only: gate 4-6's to report, not a name to compare
-                continue
-            other = seen.setdefault(key, item.id)
-            if other != item.id:
-                out.append(f"items `{other}` and `{item.id}` are the same item: both are called {text!r}")
+        # Sellers' items may share a generic body ("Acme - software subscription", "Zeta - software
+        # subscription"), so a vendor body is only compared with descriptive texts and a vendor text
+        # whole. A variant without the separator is malformed (gate 4-6 reports it) and names nothing here.
+        for text in dict.fromkeys(item.descriptive):
+            if key := words(text):  # blank or punctuation only: gate 4-6's to report, not a name to compare
+                claim(plain, (plain, bodies), item.id, text, key)
+        for full in dict.fromkeys(v.text for v in item.vendor if text_rules.SEPARATOR in v.text):
+            body = full.partition(text_rules.SEPARATOR)[2]
+            if key := words(full):
+                claim(whole, (whole,), item.id, full, key)
+            if key := words(body):
+                claim(bodies, (plain,), item.id, body, key)
     return out
 
 

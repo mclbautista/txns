@@ -112,6 +112,28 @@ class PromotionTest(BundleCase):
         self.assertEqual(sorted(self.read(folder, "storylines")),
                          ["errands", "office_pantry", "post_projects", "software_stack"])
 
+    def test_seller_qualified_items_share_a_generic_vendor_body(self):  # gate 4 (issue #43)
+        """Two subscriptions called `<Vendor> - software subscription` are two items: the author run promotes."""
+        def generic(doc):  # the two items may be drafted in different parts
+            for item in doc["items"]:
+                if item["id"] in ("software_subscriptions_a", "software_subscriptions_b"):
+                    vendor = item["vendor"][0]
+                    if item["id"].endswith("_a"):  # Streamwave sells the cheaper one, Pixelforge the other
+                        vendor["seller"] = "streamwave-seller"
+                    vendor["text"] = vendor["text"].partition(" - ")[0] + " - software subscription"
+
+        fake = (self.ws.llm
+                .script("catalog-01", edit_item("software_subscriptions_a", lambda i: i.update(sellers=[
+                    {"id": "streamwave-seller", "vendor": "Streamwave"}, *i["sellers"][1:]])))
+                .script("variants-01", Reply(edit=generic)).script("variants-02", Reply(edit=generic)))
+        self.ok(fake=fake)
+        folder = self.only_bundle()
+        text = self.read(folder, "text")
+        self.assertEqual([text[i]["vendor"][0]["text"] for i in ("software_subscriptions_a", "software_subscriptions_b")],
+                         ["Streamwave - software subscription", "Pixelforge Software - software subscription"])
+        cards = self.read(folder, "rate_cards")
+        self.assertNotEqual(cards["software_subscriptions_a"]["points"], cards["software_subscriptions_b"]["points"])
+
     def test_promoted_bundle_generates(self):  # gate 8 holds for the real run too
         self.ok()
         r = self.ws.run("generate", "--seed", "7")
@@ -451,6 +473,27 @@ class OfflineGatesTest(BundleCase):
         failures = self.failures(self.edited("text", no_separator))
         self.assertNotIn("4", failures)  # used to call both items '' and report them as the same item
         self.assertIn("4-6", failures)  # the malformed variants are gate 4-6's to report
+
+    def test_the_same_full_vendor_text_on_two_items_still_fails(self):  # gate 4-6
+        def same(text):
+            text["delivery_fee_b"]["vendor"][0] = dict(text["delivery_fee_a"]["vendor"][0])
+
+        self.assertIn("4-6", self.failures(self.edited("text", same)))
+
+    def test_a_shared_plain_variant_after_normalising_still_fails(self):  # gate 4
+        def same(text):
+            text["delivery_fee_a"]["descriptive"][0] = "delivery fee a purchase"
+            text["delivery_fee_b"]["descriptive"][0] = "  DELIVERY fee a, purchase "
+
+        self.assertIn("4", self.failures(self.edited("text", same)))
+
+    def test_a_vendor_body_equal_to_another_items_plain_variant_still_fails(self):  # gate 4
+        def same(text):
+            text["delivery_fee_a"]["descriptive"][0] = "Same Thing"
+            vendor = text["delivery_fee_b"]["vendor"][0]
+            vendor["text"] = vendor["text"].partition(" - ")[0] + " - same  thing."
+
+        self.assertIn("4", self.failures(self.edited("text", same)))
 
     def test_bundle_that_does_not_load(self):  # gate 7; the gates needing a bundle do not run
         folder = self.edited("rate_cards", lambda c: c["delivery_fee_a"]["points"][0].update(unit_price=9512))
