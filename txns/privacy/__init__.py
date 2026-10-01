@@ -8,13 +8,14 @@
     index.private_map()                          # real -> fake: LOCAL ONLY, never in payload/bundle/git
 """
 
-from txns.privacy.leaks import find_in_files, find_in_object
+from txns.privacy.leaks import LeakDetector, find_in_files, find_in_object
 from txns.privacy.names import ALLOWLIST_PATH, Allowlist, NameIndex, load_allowlist
 from txns.privacy.payload import build as build_payload
 
 __all__ = [
     "ALLOWLIST_PATH",
     "Allowlist",
+    "LeakDetector",
     "NameIndex",
     "build_payload",
     "find_in_files",

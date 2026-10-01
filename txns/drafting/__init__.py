@@ -22,6 +22,13 @@ storylines, catalog batches, variants batches, vocabulary). For each part:
    (and the rejected answer, when it carries no ledger name); a second invalid
    answer exits 4 (FR-C5, FR-D2 gate 1). Valid drafts are saved before the next
    part, so a stopped run keeps what it drafted.
+   The one exception is a variants answer with texts that match a ledger name: the
+   model is never shown a name, so such a match is a coincidence (a plain word the
+   books also use as a name). Those texts are dropped locally (`parts.without_collisions`)
+   and the rest is checked as usual; an item left short is re-asked once, by location
+   and item id only, with the answer minus the dropped texts and a request for spare
+   variants. The leak check, the allowlist and every other rule are unchanged
+   (issue #29).
 
 Every response's reported cost is summed (FR-C6). Before each call (a new part
 or a re-ask) the run stops with exit 3 if this run's calls have reached
@@ -136,13 +143,15 @@ def draft_all(
         )
         response = call(part, request)
         cost = _cost(response)
-        document, bad = _check(part, response, payload, result.drafts, index)
+        document, bad, dropped = _check(part, response, payload, result.drafts, index)
+        _warn_dropped(part, dropped, warn)
         if bad:
             # FR-C5: one re-ask carrying the validation errors, then exit 4.
             warn(f"draft `{part.name}` failed its schema ({_count(bad)}); asking once more")
-            response = call(part, _reask(request, bad, response.text, index))
+            response = call(part, _reask(request, bad, _sendable(response, document, dropped), index))
             cost += _cost(response)
-            document, bad = _check(part, response, payload, result.drafts, index)
+            document, bad, dropped = _check(part, response, payload, result.drafts, index)
+            _warn_dropped(part, dropped, warn)
             if bad:
                 raise BundleInvalid(
                     f"draft `{part.name}` failed its schema again after one re-ask ({_count(bad)}): "
@@ -163,13 +172,33 @@ def _count(bad: list[str]) -> str:
     return f"{len(bad)} problem{'s' if len(bad) != 1 else ''}"
 
 
-def _check(part: Part, response: llm.Response, payload, drafts: Drafts, index: NameIndex) -> tuple[Any, list[str]]:
-    """(document, problems) of a response; problems == [] when it is a valid draft."""
+def _check(part: Part, response: llm.Response, payload, drafts: Drafts,
+           index: NameIndex) -> tuple[Any, list[str], list[tuple[int, str, int]]]:
+    """(document, problems, dropped) of a response; problems == [] when it is a valid draft.
+
+    A variants answer loses the texts that match a ledger name (`parts.without_collisions`,
+    listed in `dropped`) and is valid when the rest still meets every rule; when it does not,
+    the problems start with one line per item that lost texts, by location only (issue #29)."""
     try:
         document = parse(response.text)
     except (TypeError, ValueError) as exc:
-        return None, [f"the response is not one JSON document ({exc})"]
-    return document, parts.problems(part, document, payload, drafts, index)
+        return None, [f"the response is not one JSON document ({exc})"], []
+    document, dropped = parts.without_collisions(part, document, index)
+    bad = parts.problems(part, document, payload, drafts, index)
+    return document, (parts.collision_problems(document, dropped) + bad if bad else bad), dropped
+
+
+def _warn_dropped(part: Part, dropped: list[tuple[int, str, int]], warn: Callable[[str], None]) -> None:
+    if dropped:
+        warn(f"draft `{part.name}`: dropped {len(dropped)} text{'s' if len(dropped) != 1 else ''} that match a "
+             f"ledger name (the model is never shown one), at these places in its answer: "
+             f"{_shown(parts.collision_where(dropped))}")
+
+
+def _sendable(response: llm.Response, document: Any, dropped: list) -> str:
+    """The answer to send back with a re-ask: the one the model gave, or, when texts that match a
+    ledger name were dropped from it, the rest of it (the original carries a name)."""
+    return json.dumps(document, ensure_ascii=False) if dropped else response.text
 
 
 def _leaks(value: Any, index: NameIndex) -> list[str]:
