@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Mapping, TextIO
+from typing import Any, Callable, Mapping, TextIO
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,7 @@ class Runtime:
     stdout: TextIO
     stderr: TextIO
     transport: Any = None  # an llm.Transport injected by tests (seam 2); None = the real connection
+    sleep: Callable[[float], None] = time.sleep  # waits between LLM retries; tests record instead of waiting
 
     def out(self, msg: str) -> None:
         print(msg, file=self.stdout)

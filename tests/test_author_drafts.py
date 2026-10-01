@@ -79,28 +79,23 @@ class ConnectionTest(DraftCase):
         self.assertIn("served by: fake/served-model-1, other/served-model-2", r.stdout)
 
     def test_failed_call_exits_3_and_keeps_earlier_drafts(self):
-        fake = ScriptedLLM().script("catalog-02", Fail("connection reset"))
+        fake = ScriptedLLM().script("catalog-02", *[Fail("connection reset")] * 4)
         r = self.author(fake)
         self.assertEqual(r.code, 3, r.stdout + r.stderr)
-        self.assertIn("LLM call for draft `catalog-02` failed: connection reset", r.stderr)
+        self.assertIn("LLM call for draft `catalog-02` failed after 4 attempts: connection reset", r.stderr)
         self.assertIn("2 valid drafts kept", r.stderr)
-        self.assertEqual(fake.parts(), ["storylines", "catalog-01", "catalog-02"])  # no retry yet (ticket 16)
+        self.assertEqual(fake.parts(), ["storylines", "catalog-01"] + ["catalog-02"] * 4)  # 1 + 3 retries (T34)
         self.assertEqual(self.saved_parts(), ["catalog-01", "storylines"])
         self.assertFalse((self.ws.cwd / "bundles").exists())
 
-    def test_without_an_injected_transport_the_real_connection_is_used(self):
-        # The OpenRouter connection is ticket 16's: until then author stops before any call.
-        for config, code, fragment in (
-            ("", 2, "`author.model` is not set"),
-            (f'[author]\nmodel = "{MODEL}"\n', 3, "OpenRouter connection is not built yet"),
-        ):
-            with self.subTest(config=config):
-                self.ws.write_config(config)
-                out, err = io.StringIO(), io.StringIO()
-                got = main(["author"], today=date(2026, 10, 5), env=KEY, cwd=self.ws.cwd, stdout=out, stderr=err)
-                self.assertEqual(got, code, err.getvalue())
-                self.assertIn(fragment, err.getvalue())
-                self.assertTrue((self.ws.cwd / AUTHOR_DIR / "payload.json").exists())
+    def test_without_an_injected_transport_and_no_model_author_exits_2(self):
+        # The real OpenRouter connection needs a pinned slug (tests/test_author_openrouter.py drives it).
+        self.ws.write_config("")
+        out, err = io.StringIO(), io.StringIO()
+        got = main(["author"], today=date(2026, 10, 5), env=KEY, cwd=self.ws.cwd, stdout=out, stderr=err)
+        self.assertEqual(got, 2, err.getvalue())
+        self.assertIn("`author.model` is not set", err.getvalue())
+        self.assertTrue((self.ws.cwd / AUTHOR_DIR / "payload.json").exists())
 
     def test_a_fully_drafted_payload_needs_no_connection(self):
         self.ok()
@@ -192,8 +187,8 @@ class RequestPrivacyTest(DraftCase):
         self.assertNotIn("swiftlane", (r.stdout + r.stderr).casefold())
 
     def test_a_draft_that_carries_a_ledger_name_fails(self):
-        fake = ScriptedLLM().script("variants-01", Reply(edit=lambda d: d["items"][0]["descriptive"].append(
-            "Coffee run with Swiftlane Couriers")))
+        leaky = Reply(edit=lambda d: d["items"][0]["descriptive"].append("Coffee run with Swiftlane Couriers"))
+        fake = ScriptedLLM().script("variants-01", leaky, leaky)
         r = self.author(fake)
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
         self.assertIn("carries a ledger name that is not on the brand allowlist", r.stderr)
@@ -261,7 +256,8 @@ def _terse_on_big_ticket(doc):
 
 
 class SchemaTest(DraftCase):
-    """A response that fails its draft schema stops the run with exit 4 (FR-D2 gate 1)."""
+    """A response that fails its draft schema is re-asked once, then stops the run with exit 4
+    (FR-C5, FR-D2 gate 1; the re-ask itself is tested in tests/test_author_openrouter.py)."""
 
     CASES = [
         # (part, outcome, fragment of the error)
@@ -298,18 +294,19 @@ class SchemaTest(DraftCase):
         ("vocabulary", Reply(document={"date_tails": ["on {d} - {mon}"]}), "without ' - '"),
     ]
 
-    def test_invalid_responses_exit_4_without_a_re_ask(self):
+    def test_invalid_twice_exits_4_after_one_re_ask(self):
         for part, outcome, fragment in self.CASES:
             with self.subTest(part=part, fragment=fragment):
                 self.ws = Workspace(self)
                 self.ws.install_author_inputs()
                 self.ws.write_config(f'[author]\nmodel = "{MODEL}"\n')
-                fake = ScriptedLLM().script(part, outcome)
+                fake = ScriptedLLM().script(part, outcome, outcome)
                 r = self.author(fake)
                 self.assertEqual(r.code, 4, r.stdout + r.stderr)
-                self.assertIn(f"draft `{part}` failed its schema", r.stderr)
+                self.assertIn(f"draft `{part}` failed its schema again after one re-ask", r.stderr)
                 self.assertIn(fragment, r.stderr)
-                self.assertEqual(fake.parts().count(part), 1)  # no re-ask yet (ticket 16)
+                self.assertEqual(fake.parts().count(part), 2)  # the first ask and one re-ask (T35)
+                self.assertTrue(any(fragment in p for p in fake.requests[-1].problems), fake.requests[-1].problems)
                 self.assertEqual(fake.parts()[-1], part)  # the run stops there
                 self.assertNotIn(part, self.saved_parts())
                 self.assertFalse((self.ws.cwd / "bundles").exists())
@@ -329,7 +326,7 @@ class SchemaTest(DraftCase):
 
 class ResumeTest(DraftCase):
     def test_rerun_resumes_from_saved_drafts(self):  # FR-C7
-        first = ScriptedLLM().script("variants-02", Fail("rate limited"))
+        first = ScriptedLLM().script("variants-02", *[Fail("rate limited")] * 4)
         self.assertEqual(self.author(first).code, 3)
         second = ScriptedLLM()
         r = self.ok(second)
@@ -338,7 +335,7 @@ class ResumeTest(DraftCase):
         self.assertEqual(self.saved_parts(), sorted(PARTS))
 
     def test_rerun_after_an_invalid_response_asks_only_from_there(self):
-        first = ScriptedLLM().script("catalog-02", Reply(text="{}"))
+        first = ScriptedLLM().script("catalog-02", Reply(text="{}"), Reply(text="{}"))
         self.assertEqual(self.author(first).code, 4)
         second = ScriptedLLM()
         self.ok(second)
