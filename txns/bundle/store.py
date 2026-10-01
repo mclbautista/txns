@@ -4,11 +4,15 @@
 - "latest" = highest `promotion` number in the manifests (FR-D5), reviewed or not.
 - Loading recomputes the content hash; a mismatch (hand edit without
   `approve`) exits 4. No bundle, or an unknown name, exits 2 (T8).
+- `approve` (FR-D4): `is_unedited` tells an untouched bundle from a hand-edited
+  one; `mark_reviewed` flips the flag in place (the only in-place change, outside
+  the hash); a hand-edited bundle is copied and promoted under its new hash.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -62,13 +66,36 @@ def find(root: Path, name: str) -> Path:
     raise MissingInput(f"unknown bundle `{name}` in {root}")
 
 
+def read_manifest(folder: Path) -> dict:
+    """The bundle's manifest (unreadable or not an object: exit 4)."""
+    return _read_manifest(folder)
+
+
+def _matches(folder: Path, manifest: dict, actual: str) -> bool:
+    return manifest.get("hash") == actual and folder.name == hashing.folder_name(str(manifest.get("label")), actual)
+
+
+def is_unedited(folder: Path) -> bool:
+    """True when the folder's content still matches its recorded hash and its folder name."""
+    return _matches(folder, _read_manifest(folder), hashing.content_hash(folder))
+
+
+def mark_reviewed(folder: Path) -> None:
+    """Set `reviewed: true` in a bundle's manifest, in place. The flag is outside the content
+    hash, so the folder name and hash stay valid (FR-D3). The temp file sits next to the
+    folder, not in it, so a crash never leaves a stray file inside the hashed content."""
+    manifest = _read_manifest(folder)
+    manifest["reviewed"] = True
+    tmp = folder.parent / f".{folder.name}.manifest.tmp"
+    tmp.write_text(pretty_json(manifest), encoding="utf-8")
+    os.replace(tmp, folder / hashing.MANIFEST)
+
+
 def load(folder: Path) -> Bundle:
     """Load a promoted bundle and verify its content hash."""
     manifest = _read_manifest(folder)
     actual = hashing.content_hash(folder)
-    recorded = manifest.get("hash")
-    label = manifest.get("label")
-    if recorded != actual or folder.name != hashing.folder_name(str(label), actual):
+    if not _matches(folder, manifest, actual):
         raise BundleInvalid(
             f"bundle {folder.name}: content does not match its hash "
             f"(edited in place? run `txns approve` to re-hash it)"
