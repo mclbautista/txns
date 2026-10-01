@@ -14,9 +14,14 @@ the catalog, item text and vocabulary through the LLM connection. It writes, in
 A leak (a non-allowlisted ledger name surviving in the payload) exits 4 before
 any LLM call and leaves no payload.json. Requests carry only extracts of the
 payload and earlier drafts, and each is leak-checked again before it is sent.
-A failed call exits 3; a response that fails its draft schema exits 4. Bundle
+The connection is OpenRouter with the pinned `author.model` (`txns.llm`).
+Network errors and rate limits are retried 3 times with backoff, then exit 3; a
+retired model slug exits 3; reaching `author.max_cost_usd` (this run's summed
+per-response cost) stops before the next call with exit 3, drafts kept; a
+response that fails its draft schema is re-asked once, then exits 4. Bundle
 assembly, the promotion gates and promotion come in a later ticket. The API key
-is only checked for presence here and is never written anywhere.
+is read only from OPENROUTER_API_KEY, goes only into the request's
+Authorization header and is never written or printed anywhere.
 """
 
 from __future__ import annotations
@@ -96,6 +101,8 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
         connect=lambda: rt.transport if rt.transport is not None else llm.connect(settings, rt.env),
         model=settings.get("model"),
         warn=rt.warn,
+        sleep=rt.sleep,
+        max_cost_usd=settings["max_cost_usd"],
     )
     _report_drafts(result, rt)
     rt.out("bundle assembly and promotion are not built yet; stopping after the drafts")

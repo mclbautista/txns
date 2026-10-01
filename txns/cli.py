@@ -2,7 +2,8 @@
 
 Primary test seam: `main(argv, today=..., env=..., cwd=..., stdout=..., stderr=...)`
 runs a command in-process with an injected clock, environment and working folder.
-`author` also takes `transport=` (test seam 2): the LLM connection, a scripted fake in tests.
+`author` also takes `transport=` (test seam 2): the LLM connection, a scripted fake in tests,
+and `sleep=`: how to wait between LLM retries (tests record the waits instead).
 
 Adding a command: create `txns/commands/<name>.py` with `add_arguments(parser)`
 and `run(args, rt) -> int`, then add it to COMMANDS below.
@@ -15,7 +16,7 @@ import os
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Any, Mapping, Sequence, TextIO
+from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from txns import __version__
 from txns.commands import Runtime
@@ -68,6 +69,7 @@ def main(
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
     transport: Any = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> int:
     stdout = stdout if stdout is not None else sys.stdout
     stderr = stderr if stderr is not None else sys.stderr
@@ -78,6 +80,7 @@ def main(
         stdout=stdout,
         stderr=stderr,
         transport=transport,
+        **({"sleep": sleep} if sleep is not None else {}),
     )
     parser = _parser()
     try:
