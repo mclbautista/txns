@@ -16,7 +16,7 @@ from __future__ import annotations
 import calendar
 import tomllib
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -166,7 +166,9 @@ def _int(key: str, value: Any, *, minimum: int) -> int:
 
 
 def _date_or_auto(key: str, value: Any) -> date | str:
-    if isinstance(value, date):
+    # A TOML datetime parses to `datetime`, a `date` subclass that cannot be compared
+    # with a date: reject it here rather than crash later.
+    if isinstance(value, date) and not isinstance(value, datetime):
         return value
     if isinstance(value, str):
         if value == "auto":
@@ -181,7 +183,8 @@ def _date_or_auto(key: str, value: Any) -> date | str:
 def parse_seed(value: Any, *, key: str = "seed") -> int | None:
     if value is None or value == "":
         return None
-    if isinstance(value, str) and value.strip().isdigit():
+    # isascii + isdecimal: plain 0-9 only (isdigit accepts "²", which int() refuses).
+    if isinstance(value, str) and value.strip().isascii() and value.strip().isdecimal():
         value = int(value.strip())
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= MAX_SEED:
         raise _err(f"`{key}` must be blank or an integer from 0 to {MAX_SEED}, got {value!r}")

@@ -226,6 +226,9 @@ class ConfigTest(unittest.TestCase):
             "target = 1.5\n",
             "band_pct = -1\n",
             'start = "yesterday"\n',
+            "start = 2026-07-01T00:00:00\n",  # a TOML datetime is not a date
+            "end = 2026-09-30T10:00:00+08:00\n",
+            'seed = "²"\n',  # a digit to str.isdigit, not to int()
             'start = "2026-09-01"\nend = "2026-08-01"\n',
             "seed = -1\n",
             "[multipliers.class]\nluxury = 2.0\n",
@@ -242,6 +245,8 @@ class ConfigTest(unittest.TestCase):
 
     def test_bad_flags_and_missing_explicit_config_exit_2(self):
         self.assertEqual(self.ws.run("generate", "--seed", "abc").code, 2)
+        self.assertEqual(self.ws.run("generate", "--seed", "²").code, 2)
+        self.assertEqual(self.ws.run("generate", "--seed", "1_000").code, 2)
         self.assertEqual(self.ws.run("generate", "--config", "nope.toml").code, 2)
         self.assertEqual(self.ws.run("generate", "--frobnicate").code, 2)
         self.assertEqual(self.ws.run().code, 2)
