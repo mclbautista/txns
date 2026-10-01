@@ -140,6 +140,10 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
     root = store.bundles_root(rt.cwd)
     name = hashing.folder_name(label, hashing.content_hash(staging))
     if (root / name).exists():
+        if not store.is_unedited(root / name):
+            raise BundleInvalid(f"the assembled bundle would be promoted as {name}, but {name} already exists and "
+                                "has been hand-edited; approve or remove it first. bundles/ untouched; the assembled "
+                                f"bundle stays in {staged}/ for review")
         shutil.rmtree(staging)
         rt.out(f"bundle {name} is already promoted with this exact content; nothing new to promote")
         return ExitCode.OK

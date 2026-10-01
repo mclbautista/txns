@@ -136,6 +136,21 @@ class PromotionTest(BundleCase):
         self.assertIn("already promoted with this exact content", r.stdout)
         self.assertEqual(self.bundles(), before)
 
+    def test_same_name_taken_by_a_hand_edited_folder_exits_4(self):  # like approve (review 8)
+        self.ok("--label", "v1")
+        folder = self.only_bundle()
+        storylines = self.read(folder, "storylines")
+        next(iter(storylines.values()))["description"] = "Edited by hand"
+        (folder / "storylines.json").write_text(json.dumps(storylines, indent=2) + "\n", encoding="utf-8")
+        before = {p.name: p.read_bytes() for p in folder.iterdir()}
+        r = self.author("--label", "v1")
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertNotIn("already promoted with this exact content", r.stdout)
+        self.assertIn(f"{folder.name} already exists and has been hand-edited", r.stderr)
+        self.assertEqual(self.bundles(), [folder.name])
+        self.assertEqual({p.name: p.read_bytes() for p in folder.iterdir()}, before)
+        self.assertTrue((self.ws.cwd / STAGED / "manifest.json").is_file())  # kept for review
+
     def test_bad_label_exits_2_before_any_call(self):
         r = self.author("--label", "../escape")
         self.assertEqual(r.code, 2)
