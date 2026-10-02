@@ -251,6 +251,26 @@ class HandEditedTest(ApproveCase):
         self.assertNotIn("Swiftlane", r.stdout + r.stderr)
         self.assertEqual(snapshot(self.root), before)
 
+    def test_approve_command_fails_on_anomaly(self):
+        # Non-sensical fee text: the text gate (and the smoke run's anomaly check) reject it.
+        self.edit(self.folder, "text", lambda t: t["delivery_fee_a"]["descriptive"].append("Out fee"))
+        before = snapshot(self.root)
+        r = self.approve()
+        self.assert_rejected(r, "4-6")
+        self.assertIn("variant 'Out fee' matches rules.json `denied_item_patterns`", r.stdout)
+        self.assertEqual(snapshot(self.root), before)
+
+    def test_approve_command_fails_on_rows_under_the_floor(self):
+        # Soft in `generate`, the anomaly check fails the smoke gate here: the delivery fees
+        # of the fixture ledgers draw rows well under a ₱500 floor.
+        self.edit(self.folder, "rules", lambda rules: rules.setdefault("scorecard", {}).update(min_transaction_amount=500))
+        before = snapshot(self.root)
+        r = self.approve()
+        self.assert_rejected(r, "8")
+        self.assertIn("anomaly on seed 1", r.stdout)
+        self.assertIn("is under the ₱500.00 floor", r.stdout)
+        self.assertEqual(snapshot(self.root), before)
+
     def test_edit_that_breaks_loading_exits_4(self):  # gate 7
         self.edit(self.folder, "rate_cards", lambda c: c["delivery_fee_a"]["points"][0].update(unit_price=9512))
         before = snapshot(self.root)

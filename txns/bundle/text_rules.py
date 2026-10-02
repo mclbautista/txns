@@ -15,20 +15,69 @@ Rules, per item:
 - a vendor-prefixed variant names one of the item's own sellers, and each
   seller has one vendor name across the bundle;
 - every variant obeys the CSV text rules (FR-H2).
+- no variant matches a rules.json `denied_item_patterns` regex (non-sensical
+  fee wording such as "Out fee"; `is_denied_text`).
 Across items: each string belongs to exactly one item, except a terse string
 shared by items with identical price-point sets (FR-D2 item 5).
+
+The denylist lives in `inputs/bundle-rules.json` (copied into every bundle's
+rules.json). A bundle authored before the key existed uses DEFAULT_DENIED_PATTERNS,
+the same list, so `generate` filters its text too.
 """
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
+from functools import lru_cache
+from typing import Any, Iterable, Mapping
 
 from txns.bundle.model import Bundle, Item
+from txns.errors import BundleInvalid
 from txns.writer import text_violations
 
 MIN_DESCRIPTIVE = 3
 MIN_TERSE = 2
 SEPARATOR = " - "
+DENIED_KEY = "denied_item_patterns"
+# Kept equal to inputs/bundle-rules.json `denied_item_patterns` (a test checks it).
+DEFAULT_DENIED_PATTERNS = (
+    r"(?i)\bout\s+fee\b",
+    r"(?i)\breimbursement\s+fee(s)?\b",
+)
+
+
+@lru_cache(maxsize=None)
+def _compile(patterns: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
+    out = []
+    for p in patterns:
+        try:
+            out.append(re.compile(p))
+        except re.error as exc:
+            raise BundleInvalid(f"bundle invalid: rules.json `{DENIED_KEY}` entry {p!r} is not a valid regex: {exc}")
+    return tuple(out)
+
+
+def denied_patterns(rules: Mapping[str, Any] | None = None) -> tuple[re.Pattern[str], ...]:
+    """The compiled denylist of a rules mapping (a bundle's rules.json), else the defaults."""
+    raw = (rules or {}).get(DENIED_KEY)
+    if raw is None:
+        return _compile(DEFAULT_DENIED_PATTERNS)
+    if not isinstance(raw, list) or not all(isinstance(p, str) for p in raw):
+        raise BundleInvalid(f"bundle invalid: rules.json `{DENIED_KEY}` must be a list of regex strings")
+    return _compile(tuple(raw))
+
+
+def is_denied_text(text: str, patterns: Iterable[re.Pattern[str]] | None = None) -> bool:
+    """True when `text` matches a denied item pattern (default: DEFAULT_DENIED_PATTERNS)."""
+    pats = denied_patterns() if patterns is None else patterns
+    return any(p.search(text) for p in pats)
+
+
+def allowed_texts(texts: Iterable[str], patterns: Iterable[re.Pattern[str]]) -> tuple[str, ...]:
+    """`texts` without the denied ones, in order."""
+    pats = tuple(patterns)
+    return tuple(t for t in texts if not is_denied_text(t, pats))
 
 
 def vendor_name(text: str) -> str | None:
@@ -37,7 +86,8 @@ def vendor_name(text: str) -> str | None:
     return head.strip() if sep else None
 
 
-def _item_problems(item: Item, vendor_names: set[str], sellers: set[str]) -> list[str]:
+def _item_problems(item: Item, vendor_names: set[str], sellers: set[str],
+                   denied: tuple[re.Pattern[str], ...] = ()) -> list[str]:
     where = f"item `{item.id}`"
     problems = []
     n_desc = len(item.descriptive) + len(item.vendor)
@@ -76,6 +126,8 @@ def _item_problems(item: Item, vendor_names: set[str], sellers: set[str]) -> lis
             problems.append(f"{where}: variant {text!r} listed twice")
         seen.add(text)
         problems.extend(f"{where}: variant {text!r}: {p}" for p in text_violations(text))
+        if is_denied_text(text, denied):
+            problems.append(f"{where}: variant {text!r} matches rules.json `{DENIED_KEY}`; name the thing bought")
     return problems
 
 
@@ -94,8 +146,9 @@ def text_problems(bundle: Bundle) -> list[str]:
             problems.append(f"seller `{seller}` appears under several vendor names: {', '.join(sorted(names))}")
     vendor_names = {n.lower() for names in names_by_seller.values() for n in names}
 
+    denied = denied_patterns(bundle.rules)
     for item in bundle.items.values():
-        problems.extend(_item_problems(item, vendor_names, sellers))
+        problems.extend(_item_problems(item, vendor_names, sellers, denied))
 
     owners: dict[str, list[tuple[str, bool]]] = defaultdict(list)  # text -> [(item id, is terse)]
     for item in bundle.items.values():

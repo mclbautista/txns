@@ -5,6 +5,8 @@ the bundle (storyline multipliers), the seed and today (`auto` period), giving a
 `ResolvedConfig`. The config hash covers the resolved `generate` keys except
 `out`, `seed` and `bundle` (those enter run identity separately, `out` never).
 `[author]` keys are validated here but are not part of `generate`'s identity.
+`[calibration]` keys (row band, ₱ floor, re-roll cap) are `generate` keys: they
+enter run.json and the config hash as the `calibration` table.
 
 Adding a `generate` key: add it to GENERATE_KEYS with a validator in
 `_validate_generate`, put it in `ResolvedConfig.as_dict()`. It is then recorded
@@ -14,9 +16,11 @@ in run.json and hashed automatically.
 from __future__ import annotations
 
 import calendar
+import math
 import tomllib
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +44,15 @@ GENERATE_KEYS = (
     "seed",
     "out",
     "multipliers",
+    "calibration",
 )
+CALIBRATION_KEYS = (
+    "min_quarterly_transactions",
+    "max_quarterly_transactions",
+    "min_transaction_amount",
+    "max_reroll_attempts",
+)
+DEFAULT_MAX_REROLL_ATTEMPTS = 50
 AUTHOR_KEYS = ("model", "max_cost_usd", "ledgers_dir")
 AUTHOR_DEFAULTS = {"max_cost_usd": 5, "ledgers_dir": "inputs/ledgers"}  # `model` has no default
 # Keys that never enter the config hash. `seed` and `bundle` are hashed into
@@ -80,6 +92,35 @@ def latest_full_quarter(today: date) -> Period:
 
 
 @dataclass(frozen=True)
+class Calibration:
+    """The `[calibration]` table: row band, transaction floor and the drawer's re-roll cap.
+
+    All unset by default (no row band beyond `target_rows`, no floor). The row
+    band applies to the run's period as given, which is a quarter by default.
+    """
+
+    min_rows: int | None = None  # min_quarterly_transactions
+    max_rows: int | None = None  # max_quarterly_transactions
+    min_amount: int | float | None = None  # min_transaction_amount, pesos
+    max_rerolls: int = DEFAULT_MAX_REROLL_ATTEMPTS  # max_reroll_attempts
+
+    @property
+    def min_amount_centavos(self) -> int | None:
+        """The floor in centavos (rounded up, so a row at the floor in pesos always passes)."""
+        if self.min_amount is None:
+            return None
+        return math.ceil(Fraction(str(self.min_amount)) * 100)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "min_quarterly_transactions": self.min_rows,
+            "max_quarterly_transactions": self.max_rows,
+            "min_transaction_amount": self.min_amount,
+            "max_reroll_attempts": self.max_rerolls,
+        }
+
+
+@dataclass(frozen=True)
 class Config:
     """Validated config file contents plus command-line overrides."""
 
@@ -95,6 +136,8 @@ class Config:
     out: str = "out"
     class_multipliers: dict[str, float] = field(default_factory=dict)
     storyline_multipliers: dict[str, float] = field(default_factory=dict)
+    archetype_multipliers: dict[str, float] = field(default_factory=dict)
+    calibration: Calibration = field(default_factory=Calibration)
     author: dict[str, Any] = field(default_factory=dict)
     source: str | None = None  # path the config was read from, None if defaults
 
@@ -113,6 +156,8 @@ class ResolvedConfig:
     out: str
     class_multipliers: dict[str, float]
     storyline_multipliers: dict[str, float]
+    archetype_multipliers: dict[str, float] = field(default_factory=dict)
+    calibration: Calibration = field(default_factory=Calibration)
 
     @property
     def target_centavos(self) -> int:
@@ -134,7 +179,9 @@ class ResolvedConfig:
             "multipliers": {
                 "class": dict(sorted(self.class_multipliers.items())),
                 "storyline": dict(sorted(self.storyline_multipliers.items())),
+                "archetype": dict(sorted(self.archetype_multipliers.items())),
             },
+            "calibration": self.calibration.as_dict(),
         }
 
     def config_hash(self) -> str:
@@ -236,11 +283,39 @@ def _validate_generate(data: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(m, dict):
             raise _err("`multipliers` must be a table")
         for sub in m:
-            if sub not in ("class", "storyline"):
-                raise _err(f"unknown table `multipliers.{sub}` (expected class, storyline)")
+            if sub not in ("class", "storyline", "archetype"):
+                raise _err(f"unknown table `multipliers.{sub}` (expected class, storyline, archetype)")
         kw["class_multipliers"] = _multipliers("multipliers.class", m.get("class", {}), PRICE_CLASSES)
         kw["storyline_multipliers"] = _multipliers("multipliers.storyline", m.get("storyline", {}), None)
+        kw["archetype_multipliers"] = _multipliers("multipliers.archetype", m.get("archetype", {}), None)
+    if "calibration" in data:
+        kw["calibration"] = _validate_calibration(data["calibration"])
+        if kw["calibration"].min_rows is not None and "target_rows" in kw:
+            raise _err("set either `target_rows` or `calibration.min_quarterly_transactions`/"
+                       "`max_quarterly_transactions`, not both")
     return kw
+
+
+def _validate_calibration(table: Any) -> Calibration:
+    if not isinstance(table, dict):
+        raise _err("`calibration` must be a table")
+    for key in table:
+        if key not in CALIBRATION_KEYS:
+            raise _err(f"unknown key `calibration.{key}` (expected one of {', '.join(CALIBRATION_KEYS)})")
+    lo_key, hi_key = "min_quarterly_transactions", "max_quarterly_transactions"
+    lo = _int(f"calibration.{lo_key}", table[lo_key], minimum=1) if lo_key in table else None
+    hi = _int(f"calibration.{hi_key}", table[hi_key], minimum=1) if hi_key in table else None
+    if (lo is None) != (hi is None):
+        raise _err(f"`calibration.{lo_key}` and `calibration.{hi_key}` go together; set both or neither")
+    if lo is not None and hi is not None and lo > hi:
+        raise _err(f"`calibration.{lo_key}` {lo} is above `calibration.{hi_key}` {hi}")
+    kw: dict[str, Any] = {"min_rows": lo, "max_rows": hi}
+    if "min_transaction_amount" in table:
+        kw["min_amount"] = _number("calibration.min_transaction_amount", table["min_transaction_amount"],
+                                   minimum=0, strict=True)
+    if "max_reroll_attempts" in table:
+        kw["max_rerolls"] = _int("calibration.max_reroll_attempts", table["max_reroll_attempts"], minimum=1)
+    return Calibration(**kw)
 
 
 def _validate_author(table: Any) -> dict[str, Any]:
@@ -321,4 +396,6 @@ def resolve(
         out=cfg.out,
         class_multipliers=classes,
         storyline_multipliers=stories,
+        archetype_multipliers=dict(cfg.archetype_multipliers),
+        calibration=cfg.calibration,
     )

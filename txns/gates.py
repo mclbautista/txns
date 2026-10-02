@@ -20,6 +20,7 @@ response matches its schema) is the drafting step's (`txns.drafting`).
                     case, spacing and punctuation; a vendor-prefixed variant is
                     compared whole, so sellers may share a generic body after `Vendor - `
     4-6 text        no blank or vendor-only text, every variant names the thing bought,
+                    none matches rules.json `denied_item_patterns`,
                     each string one item's (shared terse text only with identical
                     price points), CSV text rules (`txns.bundle.text_rules`)
     7  consistency  the bundle loads (every structural rule `generate` relies on),
@@ -28,8 +29,10 @@ response matches its schema) is the drafting step's (`txns.drafting`).
                     (deposit_balance excepted), and every point (base card and dated
                     price steps) of an item not approved for round figures has a
                     quantity giving a non-round amount
-    8  smoke        `generate` in memory on SMOKE_SEED with the config: no exit 2-6 and
-                    no hard scorecard failure (writes nothing)
+    8  smoke        `generate` in memory on SMOKE_SEED with the config: no exit 2-6,
+                    no hard scorecard failure, and no row under the config's minimum
+                    amount or with denied item text (`minimum_amount_and_denied_terms`,
+                    soft in `generate`, hard here) (writes nothing)
 """
 
 from __future__ import annotations
@@ -48,6 +51,7 @@ from txns.config import Config, resolve
 from txns.engine import archetypes
 from txns.errors import BundleInvalid, TxnsError
 from txns.money import is_round_thousand
+from txns.scorecard.checks import anomalies
 
 SMOKE_SEED = 1
 MAX_SHOWN = 12  # problems shown per gate
@@ -164,8 +168,12 @@ def smoke(bundle: Bundle, config: Config, today: date) -> list[str]:
     except TxnsError as exc:
         return [f"`generate --seed {SMOKE_SEED}` would exit {int(exc.exit_code)}: {exc}"]
     period = f"{resolved.period.start} to {resolved.period.end}"
-    return [f"hard scorecard failure on seed {SMOKE_SEED} ({period}): {r.name}: {r.detail}"
-            for r in report.results if r.hard and r.status == scorecard.FAIL]
+    out = [f"hard scorecard failure on seed {SMOKE_SEED} ({period}): {r.name}: {r.detail}"
+           for r in report.results if r.hard and r.status == scorecard.FAIL]
+    # Soft in `generate`, but a bundle whose rows dip under the floor or carry denied text is not promoted.
+    out += [f"anomaly on seed {SMOKE_SEED} ({period}): {r.name}: {r.detail}"
+            for r in report.results if r.name == anomalies.NAME and r.status == scorecard.FAIL]
+    return out
 
 
 def run_offline(folder: Path, *, config: Config, today: date, index: privacy.NameIndex) -> GateReport:

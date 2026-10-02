@@ -7,7 +7,9 @@ The bundle is found first (none, or an unknown name, exits 2). Then the offline
 promotion gates (FR-D2 items 2-8, `txns.gates`) run on the folder as it is now:
 anchors, the ledger-name leak check (reads the ledgers in `author.ledgers_dir` and
 the brand allowlist; missing ledgers exit 2), duplicate items, item text, internal
-consistency and a smoke `generate` with the config (`txns.toml` or `--config`).
+consistency and a smoke `generate` with the config (`txns.toml` or `--config`),
+which also fails on any row under `calibration.min_transaction_amount` or with
+text matching rules.json `denied_item_patterns` (soft in `generate`).
 Any failure exits 4 and changes nothing.
 
 The content hash is recomputed (`store.is_unedited`):

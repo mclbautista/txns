@@ -1,7 +1,12 @@
 """Calibrator (FR-G): plan, draw and scale until the total is in band, without plug rows.
 
 The band is `[target, target x (1 + band_pct/100)]`; with `target_rows` the row
-count must also land in `[target_rows, target_rows x (1 + band_pct/100)]`.
+count must also land in `[target_rows, target_rows x (1 + band_pct/100)]`, and
+with `[calibration]` `min_quarterly_transactions`/`max_quarterly_transactions`
+in that inclusive range instead (`txns.toml` ships 300 to 400). Fewer rows for
+the same total means larger rows: the occurrence scale is set by the row count
+first, then the quantity stages (seats, quantities, big-ticket scope) carry
+the total, so the spend moves toward the high-value items.
 
 How (FR-G1 to FR-G4):
 
@@ -63,6 +68,7 @@ class Goal:
     hi: int
     rows_lo: int | None = None
     rows_hi: int | None = None
+    rows_key: str = "target_rows"  # the config key the row band came from, for messages
 
     @classmethod
     def of(cls, config) -> "Goal":
@@ -71,6 +77,10 @@ class Goal:
         goal = cls(lo=lo, hi=math.floor(lo * widen))
         if config.target_rows is not None:
             goal = replace(goal, rows_lo=config.target_rows, rows_hi=math.floor(config.target_rows * widen))
+        cal = config.calibration
+        if cal.min_rows is not None:
+            goal = replace(goal, rows_lo=cal.min_rows, rows_hi=cal.max_rows,
+                           rows_key="calibration.min_quarterly_transactions")
         return goal
 
     def total_ok(self, total: int) -> bool:
@@ -250,9 +260,9 @@ def _search_rows(plans: _Plans, goal: Goal) -> tuple[Setting, float]:
         found, last = _grow_occurrences(plans, count, lo, hi, base)
         if isinstance(found, _Bracket) and found.over is None:
             raise GapsImpossible(
-                f"gap rules cannot hold for target_rows = {goal.rows_lo}: with every item that can "
+                f"gap rules cannot hold for {goal.rows_key} = {goal.rows_lo}: with every item that can "
                 f"grow at its gap-rule limit the plan has at most {count(last)} rows. "
-                "Lower `target_rows`, or use a bundle with more items."
+                f"Lower `{goal.rows_key}`, or use a bundle with more items."
             )
     else:
         found = base
@@ -493,7 +503,7 @@ def calibrate(ctx: EngineContext) -> list[Row]:
         return closed
     near = plans.rows(starts[0])
     raise TargetUnsatisfiable(
-        f"target_rows = {goal.rows_lo} ({goal.row_band()}) and a total of {goal.band()} cannot both be met "
+        f"{goal.rows_key} = {goal.rows_lo} ({goal.row_band()}) and a total of {goal.band()} cannot both be met "
         f"without plug rows: at about that row count the plan totals {format_pesos(_total(near))}. "
-        "Change `target_rows` or `target`, or widen `band_pct`."
+        f"Change `{goal.rows_key}` or `target`, or widen `band_pct`."
     )

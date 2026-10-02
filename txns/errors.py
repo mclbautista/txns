@@ -42,3 +42,8 @@ class GapsImpossible(TxnsError):
 
 class TargetUnsatisfiable(TxnsError):
     exit_code = ExitCode.TARGET_UNSATISFIABLE
+
+
+class DraftGenerationError(BundleInvalid):
+    """The drawer cannot give a row the `[calibration]` minimum amount: the bundle's
+    prices and allowed quantities cannot reach it (exit 4)."""

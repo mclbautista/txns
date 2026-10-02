@@ -1,5 +1,6 @@
-# txns config. Every value shown is the default; the quarterly routine is
-# `txns generate` with this file unchanged.
+# txns config. Every value shown is the default except the [calibration] table,
+# which is off unless set; the quarterly routine is `txns generate` with this
+# file unchanged.
 
 bundle = "latest"        # or "<label>-<hash12>" from bundles/
 start = "auto"           # auto = latest full calendar quarter before today
@@ -21,6 +22,28 @@ out = "out"              # not part of run identity
 # big_ticket = 1.0
 
 [multipliers.storyline]  # one key per bundle storyline, default 1.0
+
+# How often each archetype's items occur, whatever their class (so big-ticket
+# items can occur more often, not only grow in scope). Use it to shift spend
+# toward fewer, larger rows when the [calibration] row band leaves the total
+# short; fixed-day subscriptions are unaffected.
+[multipliers.archetype]  # all default 1.0
+# one_off_big_ticket = 1.0
+# project_burst = 1.0
+# batch_logged = 1.0
+# petty_daily = 1.0
+
+# Volume and floor. 300 to 400 rows a quarter at the same ₱4M target (about
+# ₱10,000 to ₱13,333 a row); no row under ₱500: a row drawn under it is
+# re-drawn up to max_reroll_attempts times (then generate exits 4), and an
+# item that can never reach it is left out with a warning. The row band
+# replaces `target_rows`; set one or the other. Remove the table to go back
+# to the uncapped row count with no floor.
+[calibration]
+min_quarterly_transactions = 300
+max_quarterly_transactions = 400
+min_transaction_amount = 500     # pesos
+max_reroll_attempts = 50
 
 [author]
 # model = ""             # one pinned OpenRouter slug

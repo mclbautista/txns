@@ -11,6 +11,12 @@ A descriptive row draws uniformly from the item's plain descriptive variants
 plus the vendor-prefixed variants whose seller sells the row's price point, so
 a vendor name never contradicts the price. Terse variants are unattributed.
 
+Variants matching the bundle's rules.json `denied_item_patterns`
+(`text_rules.is_denied_text`) are never drawn: a row whose pool is all denied
+falls back to the item's other allowed variants (terse to descriptive and back).
+An item with no allowed variant at all is a bundle error (exit 4). For a bundle
+without denied text this changes no draw.
+
 Every draw uses the item's own `text` stream, so other items and storylines
 never change an item's text (T5).
 """
@@ -20,9 +26,11 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
+from txns.bundle import text_rules
 from txns.bundle.model import Item
 from txns.engine.context import EngineContext
 from txns.engine.rows import Row
+from txns.errors import BundleInvalid
 
 DEFAULT_TERSE_SHARE = 0.3
 
@@ -52,13 +60,32 @@ def descriptive_choices(item: Item, seller: str | None) -> tuple[str, ...]:
     return item.descriptive + tuple(v.text for v in item.vendor if seller is not None and v.seller == seller)
 
 
+def without_denied(ctx: EngineContext, item: Item) -> Item:
+    """The item with its denied variants removed (the item itself when none is denied)."""
+    denied = text_rules.denied_patterns(ctx.bundle.rules)
+    if not any(text_rules.is_denied_text(t, denied) for t in item.variants):
+        return item
+    kept = replace(
+        item,
+        descriptive=text_rules.allowed_texts(item.descriptive, denied),
+        terse=text_rules.allowed_texts(item.terse, denied),
+        vendor=tuple(v for v in item.vendor if not text_rules.is_denied_text(v.text, denied)),
+    )
+    if not kept.descriptive and not kept.terse:
+        raise BundleInvalid(
+            f"bundle invalid: every plain descriptive and terse variant of item `{item.id}` matches "
+            f"rules.json `{text_rules.DENIED_KEY}`; add a variant that names the thing bought"
+        )
+    return kept
+
+
 def apply(ctx: EngineContext, rows: list[Row]) -> list[Row]:
     positions: dict[str, list[int]] = {}
     for i, row in enumerate(rows):
         positions.setdefault(row.item_id, []).append(i)
     out = list(rows)
     for item_id in sorted(positions):
-        item = ctx.bundle.items[item_id]
+        item = without_denied(ctx, ctx.bundle.items[item_id])
         stream = ctx.item_stream(item_id, "text")
         idx = positions[item_id]
         expected = terse_share(ctx, item) * len(idx)
@@ -72,7 +99,8 @@ def apply(ctx: EngineContext, rows: list[Row]) -> list[Row]:
             if n in terse_rows:
                 variants = item.terse
             else:
-                # The loader guarantees plain descriptive or terse variants exist.
+                # The loader guarantees plain descriptive or terse variants exist, and
+                # `without_denied` that some survive the denylist.
                 variants = descriptive_choices(item, seller_of(item, row)) or item.terse
             out[i] = replace(row, text=stream.choice(variants))
     return out

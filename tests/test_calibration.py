@@ -341,3 +341,105 @@ class TierAndStorylineTest(CalibrationCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def studio(files):
+    """A post-production studio's quarter: petty spend, drives, project bursts, big tickets, seats."""
+    for key in ("items",):
+        files["catalog"][key].clear()
+    files["rate_cards"].clear()
+    files["text"].clear()
+    files["storylines"].clear()
+
+    def petty(item_id, points, descriptive, terse, per_week, quantities=((1, 6), (2, 3), (3, 1), (4, 1))):
+        add_item(files, item_id, storyline="operations", points=points,
+                 quantities=list(quantities), descriptive=descriptive, terse=terse, params={"per_week": per_week})
+
+    petty("ops.crew_meals", [(65_000, "cater-1"), (78_500, "cater-2")],
+          ["Crew meals catering", "Catered crew lunch", "Crew dinner order"], ["Crew meals", "Meals"], 4.0)
+    petty("ops.courier", [(52_000, "courier-1"), (61_500, "courier-2")],
+          ["Courier dispatch of drives", "Same-day courier run", "Courier delivery of masters"], ["Courier", "Dispatch"], 3.0)
+    petty("ops.taxi", [(54_500, "ride-1"), (68_000, "ride-2")],
+          ["Ride to client screening", "Taxi to location recce", "Car hire for talent pickup"], ["Ride", "Taxi"], 3.0)
+    petty("ops.supplies", [(59_500, "office-1"), (72_000, "office-2")],
+          ["Office supplies restock", "Printer toner and paper", "Edit bay consumables"], ["Supplies", "Consumables"], 2.0)
+    petty("ops.fuel", [(13_400, "fuel-1"), (24_500, "fuel-2")],  # never reaches ₱500: left out under the floor
+          ["Fuel for service vehicle", "Gasoline top-up", "Diesel for generator"], ["Fuel", "Gas"], 2.0,
+          quantities=((1, 6), (2, 1)))
+    add_item(files, "media.drives", storyline="media", archetype="batch_logged",
+             points=[(495_000, "drives-1"), (538_000, "drives-2")], quantities=[(1, 5), (2, 3), (4, 1)],
+             descriptive=["8TB external hard drive", "Portable SSD 4TB", "RAID drive replacement"],
+             terse=["HDD", "Drives"], params={"per_week": 1.0})
+    for item_id, points, descriptive, terse in (
+        ("post.grade_suite", [(1_250_000, "suite-1"), (1_480_000, "suite-2")],
+         ["Color grading suite hire (day)", "Grading suite day rate", "DI suite booking (day)"], ["Grade suite", "DI suite"]),
+        ("post.mix_stage", [(1_650_000, "stage-1"), (1_890_000, "stage-2")],
+         ["Sound mix stage hire (day)", "Dubbing stage day rate", "Mix stage booking (day)"], ["Mix stage", "Dub stage"]),
+        ("post.online_suite", [(950_000, "online-1"), (1_100_000, "online-2")],
+         ["Online conform suite (day)", "Conform suite day rate", "Online suite booking (day)"], ["Online", "Conform"]),
+    ):
+        add_item(files, item_id, storyline="projects", archetype="project_burst", points=points,
+                 quantities=[(1, 4), (2, 2), (3, 1)], descriptive=descriptive, terse=terse, params={"burst_scale": 1.0})
+    for item_id, price, descriptive in (
+        ("gear.camera", 18_500_000, ["Cinema camera package purchase", "Camera body and lens kit", "Camera package upgrade"]),
+        ("gear.storage", 42_000_000, ["Shared storage server expansion", "NAS storage node purchase", "Storage chassis and disks"]),
+        ("gear.monitor", 26_000_000, ["Reference grading monitor", "HDR grading display", "Client monitor for the suite"]),
+    ):
+        add_item(files, item_id, storyline="gear", archetype="one_off_big_ticket", price_class="big_ticket",
+                 points=[(price, item_id)], quantities=[(1, 6), (2, 1), (3, 1)], descriptive=descriptive, params={})
+    add_item(files, "sw.edit_seats", storyline="software", archetype="fixed_day_subscription", price_class="subscription",
+             points=[(285_000, "nle")], quantities=[(3, 1), (5, 2), (8, 1), (10, 1)],
+             descriptive=["Editing software subscription", "NLE seat licences", "Editorial software seats"],
+             terse=["NLE subs", "Edit seats"], params={"anchor_day": 11})
+
+
+QUARTER = """
+target = 4_000_000
+band_pct = 2
+
+[multipliers.archetype]
+one_off_big_ticket = 3
+
+[calibration]
+min_quarterly_transactions = 300
+max_quarterly_transactions = 400
+min_transaction_amount = 500
+max_reroll_attempts = 50
+"""
+
+
+class QuarterlyVolumeTest(CalibrationCase):
+    """The committed [calibration] shape: ₱4M in 300 to 400 rows, none under ₱500."""
+
+    mutate = staticmethod(studio)
+
+    def test_quarterly_volume_and_amount_target(self):
+        for seed in (1, 2, 3):
+            r = self.generate(QUARTER, seed=seed)
+            self.assertEqual(r.code, 0, r.stdout + r.stderr)
+            amounts = [amount(row) for row in r.rows]
+            total = sum(amounts)
+            self.assertLessEqual(abs(total - 400_000_000), 20_000_000, total)  # ₱4M ± 5%
+            self.assertTrue(300 < len(amounts) < 400, len(amounts))
+            self.assertGreaterEqual(min(amounts), 50_000)
+            self.assertIn("item `ops.fuel` left out", r.stderr)
+            self.assertFalse(r.run_json["scorecard"]["hard_failure"])  # no plug rows, prices stable
+            # Fewer, larger rows: the 30 largest carry most of the spend.
+            self.assertGreater(sum(sorted(amounts)[-30:]) / total, 0.6)
+
+    def test_row_band_that_gap_rules_cannot_reach_exits_5_naming_the_key(self):
+        r = self.generate(QUARTER.replace("400", "2000").replace("300", "1900"))
+        self.assertEqual(r.code, 5, r.stdout + r.stderr)
+        self.assertIn("calibration.min_quarterly_transactions = 1900", r.stderr)
+
+    def test_archetype_multiplier_makes_big_tickets_more_frequent(self):
+        big = {"gear.camera", "gear.storage", "gear.monitor"}
+
+        def big_rows(config):
+            r = self.generate(config, seed=4)
+            self.assertEqual(r.code, 0, r.stdout + r.stderr)
+            return sum(1 for row in r.rows if self.index.get(row["item/service"]) in big)
+
+        plain = big_rows("target = 1\nband_pct = 1e12\n")
+        tripled = big_rows("target = 1\nband_pct = 1e12\n[multipliers.archetype]\none_off_big_ticket = 3\n")
+        self.assertGreater(tripled, plain)

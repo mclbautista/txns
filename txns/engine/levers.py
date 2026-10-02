@@ -25,7 +25,14 @@ Each archetype declares its levers when it registers:
 
 Per-class rules (FR-E12): only retail items grow by number of occurrences;
 subscriptions grow by seats and big-ticket items by scope, so their occurrence
-count is left as planned.
+count is left as planned by calibration.
+
+Archetype multipliers (`[multipliers.archetype]`, default 1.0) are the one
+exception, set by the owner rather than calibration: they multiply the
+occurrence-rate params of every item of that archetype, whatever its class,
+so a big-ticket archetype can be made more frequent (the "archetype weights"
+that shift spend toward fewer, larger rows). Archetypes without rate params
+(fixed-day subscriptions) are unaffected.
 """
 
 from __future__ import annotations
@@ -113,6 +120,16 @@ def scale_rates(item: Item, levers: Levers, factor: float) -> Item:
     return replace(item, params=MappingProxyType(params))
 
 
+def weight_archetype(item: Item, levers: Levers, factor: float) -> Item:
+    """The item with its occurrence-rate params multiplied by its archetype multiplier (any class)."""
+    if factor == 1.0 or not levers.rate_params:
+        return item
+    params = dict(item.params)
+    for name, default in levers.rate_params.items():
+        params[name] = float(params.get(name, default)) * factor
+    return replace(item, params=MappingProxyType(params))
+
+
 def tilt_quantities(options: tuple[QtyOption, ...], factor: float) -> tuple[QtyOption, ...]:
     """Reweight the allowed quantities so the mean quantity is `factor` x the bundle's.
 
@@ -164,6 +181,10 @@ class Scaler:
         self.bundle = bundle
         self.levers = {i.id: levers_of(i.archetype) for i in bundle.items.values()}
         self.factor = {i.id: plan_factor(i, bundle, config) for i in bundle.items.values()}
+        self.weighted = {
+            i.id: weight_archetype(i, self.levers[i.id], float(config.archetype_multipliers.get(i.archetype, 1.0)))
+            for i in bundle.items.values()
+        }
         self._tilts: dict[tuple[str, float], tuple[QtyOption, ...]] = {}
 
     def item_levers(self, item_id: str) -> Levers:
@@ -190,7 +211,7 @@ class Scaler:
         for item in self.bundle.items.values():
             lv = self.levers[item.id]
             f = self.factor[item.id]
-            scaled = scale_rates(item, lv, f * setting.occurrences)
+            scaled = scale_rates(self.weighted[item.id], lv, f * setting.occurrences)
             if lv.quantities:
                 q = f * setting.qty(QTY_STAGE_OF_CLASS[item.price_class])
                 tilted = self._tilt(item, q)
