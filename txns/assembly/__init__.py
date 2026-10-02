@@ -140,6 +140,7 @@ def assemble(
         raise MissingInput(str(exc)) from None
     storylines = {s["name"]: {k: v for k, v in s.items() if k != "name"} for s in drafts.storylines}
     pricing_rules = rules.get("pricing") or {}
+    denied = text_rules.denied_patterns(rules)  # non-sensical item text never enters a bundle
     step_years = pricing.step_years(last, years)
 
     evidence, missing = pricing.gather_evidence(drafts.items, drafts.variants, derived.rows, derived.reference, anchors)
@@ -164,15 +165,24 @@ def assemble(
             rendered, _ = _render([v["text"]], pcs)
             if rendered and v["seller"] in sellers:
                 vendor.append({"seller": v["seller"], "text": rendered[0]})
+        n_before = len(descriptive) + len(terse) + len(vendor)
+        descriptive = list(text_rules.allowed_texts(descriptive, denied))
+        terse = list(text_rules.allowed_texts(terse, denied))
+        vendor = [v for v in vendor if not text_rules.is_denied_text(v["text"], denied)]
+        n_denied = n_before - len(descriptive) - len(terse) - len(vendor)
         entry_text = {"descriptive": descriptive, "terse": terse}
         if vendor:
             entry_text["vendor"] = vendor
-        if d1 or d2:
+        if d1 or d2 or n_denied:
             short = _text_shortfall(draft["class"], entry_text)
             if short:
+                why = [f"no pack size for its {PCS} variants"] if d1 or d2 else []
+                why += [f"{n_denied} variant(s) match `{text_rules.DENIED_KEY}`"] if n_denied else []
                 built.left_out.append(LeftOut(item_id, draft["category"],
-                                              f"no pack size for its {PCS} variants, and without them {short}"))
+                                              f"{' and '.join(why)}, and without them {short}"))
                 continue
+        if n_denied:
+            built.notes.append(f"item `{item_id}`: dropped {n_denied} variant(s) matching `{text_rules.DENIED_KEY}`")
         params = dict(draft.get("params") or {})
         if draft["archetype"] == SUBSCRIPTION and "anchor_day" not in params:
             params["anchor_day"] = _anchor_day(item_id, rules)

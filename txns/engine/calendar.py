@@ -20,7 +20,9 @@ rules.json `calendar` table (all optional):
     holy_week_factor    factor on the other days of Holy Week (Palm Sunday to
                         Easter), default 1.0; Maundy Thursday and Good Friday
                         are regular holidays and Black Saturday a special day
-    month_end           {"days": N, "factor": f}: last N days of a month, default 3 / 1.0
+    month_end           {"days": N, "factor": f, "business_days": b}: last N days of a
+                        month (with `business_days: true`, its last N business days:
+                        no weekends or holidays), default 3 / 1.0 / false
     daily_ceiling       soft cap as a multiple of the average daily row count, default 3.0
 
 Subscription-class items ignore holidays, Holy Week and month-end here: their
@@ -35,7 +37,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter, defaultdict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from typing import Any, Iterator, Mapping, Sequence
 
@@ -74,6 +76,21 @@ def is_business_day(d: date, cal: HolidayCalendar) -> bool:
     return d.weekday() < 5 and cal.get(d) is None
 
 
+def month_end_business_days(d: date, n: int, cal: HolidayCalendar) -> bool:
+    """True when d is one of the last n business days of its month."""
+    if not is_business_day(d, cal):
+        return False
+    later, one = 0, timedelta(days=1)
+    nxt = d + one
+    while nxt.month == d.month:
+        if is_business_day(nxt, cal):
+            later += 1
+            if later >= n:
+                return False
+        nxt += one
+    return True
+
+
 def roll_forward(d: date, cal: HolidayCalendar) -> date:
     """d, or the next day that is neither a weekend nor a holiday (FR-E8)."""
     while not is_business_day(d, cal):
@@ -102,6 +119,16 @@ class DayShape:
     month_end_n: int
     month_end_factor: float
     calendar: HolidayCalendar
+    month_end_business: bool = False
+    _month_end: dict = field(default_factory=dict, compare=False, repr=False, init=False)  # day -> in the month-end window
+
+    def in_month_end(self, d: date) -> bool:
+        if not self.month_end_business:
+            return month_end_days(d, self.month_end_n)
+        hit = self._month_end.get(d)
+        if hit is None:
+            hit = self._month_end[d] = month_end_business_days(d, self.month_end_n, self.calendar)
+        return hit
 
     def weight(self, d: date) -> float:
         w = self.weekday[d.weekday()] * self.months[d.month - 1]
@@ -112,7 +139,7 @@ class DayShape:
             first, last = holidays.holy_week(d.year)
             if first <= d <= last:
                 w *= self.holy_week_factor
-        if self.month_end_n and month_end_days(d, self.month_end_n):
+        if self.month_end_n and self.month_end_factor != 1.0 and self.in_month_end(d):
             w *= self.month_end_factor
         return w
 
@@ -147,6 +174,7 @@ def day_shape(ctx, item) -> DayShape:
         month_end_n=int(month_end.get("days", DEFAULT_MONTH_END["days"])),
         month_end_factor=float(month_end.get("factor", DEFAULT_MONTH_END["factor"])),
         calendar=bundle.calendar,
+        month_end_business=month_end.get("business_days") is True,
     )
     if item.price_class == "subscription":
         shape = replace(shape, holiday_leak=1.0, special_day_factor=1.0, holy_week_factor=1.0, month_end_factor=1.0)

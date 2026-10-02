@@ -286,3 +286,64 @@ class NegativeSampleTest(unittest.TestCase):  # T31
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnomalyCheckTest(unittest.TestCase):
+    """`minimum_amount_and_denied_terms`: no row under the floor, no denied item text."""
+
+    HEADER = "date_of_transaction,qty,unit_price,item/service\n"
+    CLEAN = "2026-02-06,1,5000.00,Optical Media Stock (ea)\n2026-03-16,1,9950.00,LTO Tape Stock (ea)\n"
+
+    def setUp(self):
+        self.ws = Workspace(self)
+
+    def bundle(self, floor=500):
+        def mutate(files):
+            catalog_negative_items(files)
+            if floor is not None:
+                files["rules"].setdefault("scorecard", {})["min_transaction_amount"] = floor
+
+        return store.load(self.ws.bundle_dir(self.ws.install_bundle(mutate=mutate)))
+
+    def anomaly(self, csv_text, bundle):
+        return score_csv(self.HEADER + csv_text, bundle, tolerance_pct=25).get("minimum_amount_and_denied_terms")
+
+    def test_scorecard_flags_sub_500_and_denied_terms(self):
+        bundle = self.bundle()
+        self.assertEqual(self.anomaly(self.CLEAN, bundle).status, "pass")
+
+        under = self.anomaly(self.CLEAN + "2026-03-20,1,450.00,Optical Media Stock (ea)\n", bundle)
+        self.assertEqual((under.status, under.value), ("fail", 1))
+        self.assertIn("row 3: ₱450.00 is under the ₱500.00 floor", under.detail)
+
+        denied = self.anomaly(self.CLEAN + "2026-03-20,1,5000.00,Out Fee\n", bundle)
+        self.assertEqual((denied.status, denied.value), ("fail", 1))
+        self.assertIn("row 3: text 'Out Fee' matches `denied_item_patterns`", denied.detail)
+
+        both = self.anomaly(self.CLEAN + "2026-03-20,1,450.00,Reimbursement Fees\n", bundle)
+        self.assertEqual((both.status, both.value), ("fail", 2))
+        self.assertFalse(both.hard)  # soft: generate warns, approve fails (gate 8)
+
+    def test_without_a_floor_only_text_is_checked(self):
+        bundle = self.bundle(floor=None)
+        self.assertEqual(self.anomaly(self.CLEAN + "2026-03-20,1,1.00,Optical Media Stock (ea)\n", bundle).status, "pass")
+        self.assertEqual(self.anomaly(self.CLEAN + "2026-03-20,1,5000.00,out fee\n", bundle).status, "fail")
+
+    def test_check_function_on_rows(self):
+        from datetime import date
+
+        from txns.engine.rows import Row
+        from txns.scorecard.checks.anomalies import check_minimum_amount_and_denied_terms
+
+        rows = [Row(date(2026, 7, 1), 1, 50_000, "Courier"), Row(date(2026, 7, 2), 1, 49_999, "Out fee")]
+        bad = check_minimum_amount_and_denied_terms(rows, floor=50_000)
+        self.assertEqual(len(bad), 2, bad)
+        self.assertEqual(check_minimum_amount_and_denied_terms(rows[:1], floor=50_000), [])
+
+    def test_generate_warns_on_anomalies_but_keeps_its_exit_code(self):
+        self.ws.install_bundle(mutate=lambda f: f["rules"].setdefault("scorecard", {}).update(min_transaction_amount=500))
+        r = self.ws.run("generate", "--seed", "3")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("warning: anomalies in the output:", r.stderr)
+        self.assertEqual(check(r.run_json, "minimum_amount_and_denied_terms")["status"], "fail")
+        self.assertTrue(any(w.startswith("anomalies in the output") for w in r.run_json["warnings"]))

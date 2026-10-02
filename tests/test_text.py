@@ -5,12 +5,13 @@ reviewer would; text-to-item mapping through the scorecard-as-a-function seam;
 the bundle text gates through `text_problems`, which `author`/`approve` run.
 """
 
+import json
 import unittest
 from collections import Counter, defaultdict
 from decimal import Decimal
 
-from tests.helpers import Workspace, add_item, load_fixture_files
-from txns.bundle import store
+from tests.helpers import REPO_ROOT, Workspace, add_item, load_fixture_files
+from txns.bundle import store, text_rules
 from txns.bundle.text_rules import text_problems
 from txns.scorecard import score_csv
 
@@ -295,3 +296,72 @@ class TextGateTest(unittest.TestCase):  # FR-D2 gates 4-6, FR-C3
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeniedTextTest(unittest.TestCase):
+    """rules.json `denied_item_patterns`: non-sensical fee wording never reaches a CSV or a bundle."""
+
+    DENIED = ("Out fee", "Reimbursement Fees")
+
+    def setUp(self):
+        self.ws = Workspace(self)
+
+    def with_denied(self, files):
+        files["text"]["pantry.coffee"]["descriptive"].extend(self.DENIED)
+        files["text"]["pantry.coffee"]["terse"].append("out fee")
+
+    def test_default_patterns_match_the_committed_rules(self):
+        committed = json.loads((REPO_ROOT / "inputs" / "bundle-rules.json").read_text(encoding="utf-8"))
+        self.assertEqual(tuple(committed[text_rules.DENIED_KEY]), text_rules.DEFAULT_DENIED_PATTERNS)
+
+    def test_is_denied_text(self):
+        for text in ("Out fee", "OUT  FEE", "Reimbursement Fees", "reimbursement fee for courier"):
+            self.assertTrue(text_rules.is_denied_text(text), text)
+        for text in ("Layout fee", "Checkout fee", "Courier fee", "Reimbursement of fuel", "Shout fees"):
+            self.assertFalse(text_rules.is_denied_text(text), text)
+
+    def test_denied_item_patterns_filtered(self):
+        self.ws.install_bundle(mutate=self.with_denied)
+        self.ws.write_config(FULL_YEAR)
+        r = self.ws.run("generate", "--seed", "42")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        texts = [row["item/service"] for row in r.rows]
+        self.assertFalse([t for t in texts if text_rules.is_denied_text(t)])
+        self.assertFalse(any(t in self.DENIED or t == "out fee" for t in texts))
+        # The item still gets its rows, from its other variants (descriptive and terse).
+        coffee = set(load_fixture_files()["text"]["pantry.coffee"]["descriptive"])
+        coffee_terse = set(load_fixture_files()["text"]["pantry.coffee"]["terse"])
+        self.assertTrue(any(t in coffee for t in texts))
+        self.assertTrue(any(t in coffee_terse for t in texts))
+        self.assertEqual(check(r.run_json, "minimum_amount_and_denied_terms")["status"], "pass")
+
+    def test_bundle_without_the_key_uses_the_defaults(self):
+        def no_key(files):
+            self.with_denied(files)
+            files["rules"].pop(text_rules.DENIED_KEY, None)
+
+        bundle = store.load(self.ws.bundle_dir(self.ws.install_bundle(mutate=no_key)))
+        self.assertTrue(any("denied_item_patterns" in p for p in text_problems(bundle)))
+
+    def test_text_gate_rejects_denied_variants(self):
+        bundle = store.load(self.ws.bundle_dir(self.ws.install_bundle(mutate=self.with_denied)))
+        problems = [p for p in text_problems(bundle) if "denied_item_patterns" in p]
+        self.assertEqual(len(problems), 3, problems)
+        self.assertIn("item `pantry.coffee`: variant 'Out fee' matches", problems[0])
+
+    def test_bundle_patterns_replace_the_defaults(self):
+        def own(files):
+            files["rules"][text_rules.DENIED_KEY] = [r"(?i)\bcoffee\b"]
+
+        bundle = store.load(self.ws.bundle_dir(self.ws.install_bundle(mutate=own)))
+        self.assertTrue(any("'Coffee'" in p for p in text_problems(bundle)))
+
+    def test_item_with_only_denied_text_exits_4(self):
+        def only_denied(files):
+            files["text"]["pantry.coffee"] = {"descriptive": ["Out fee"], "terse": ["Reimbursement Fees"]}
+
+        self.ws.install_bundle(mutate=only_denied)
+        self.ws.write_config(FULL_YEAR)
+        r = self.ws.run("generate", "--seed", "42")
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("pantry.coffee", r.stderr)

@@ -14,9 +14,11 @@ from txns.bundle import store
 from txns.canonical import sha256_hex
 from txns.commands import Runtime
 from txns.config import load_config, parse_seed, resolve
+from txns.engine import archetypes, drawer
 from txns.engine.calendar import coverage_warning
 from txns.errors import ExitCode
 from txns.money import format_centavos, format_pesos
+from txns.scorecard.checks import anomalies
 from txns.writer import write_outputs
 
 RUN_ID_SHORT = 6
@@ -56,6 +58,9 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
     unknown = sorted(set(cfg.storyline_multipliers) - set(bundle.storylines))
     if unknown:
         warnings.append(f"multipliers.storyline names storylines not in the bundle: {', '.join(unknown)}")
+    unknown = sorted(set(cfg.archetype_multipliers) - set(archetypes.names()))
+    if unknown:
+        warnings.append(f"multipliers.archetype names unknown archetypes: {', '.join(unknown)}")
     for w in warnings:
         rt.warn(w)
 
@@ -71,8 +76,19 @@ def run(args: argparse.Namespace, rt: Runtime) -> int:
         warnings.append(uncovered)
         rt.warn(uncovered)
 
+    for item, best in drawer.unreachable(bundle, resolved):
+        w = (f"item `{item.id}` left out: its largest possible row {format_pesos(best)} is under the "
+             f"minimum transaction amount {format_pesos(resolved.calibration.min_amount_centavos)}")
+        warnings.append(w)
+        rt.warn(w)
+
     rows = engine.generate(seed, bundle, resolved)
     report = scorecard.score(rows, bundle, resolved)
+    for r in report.results:  # soft-flagged here; `approve` fails on them
+        if r.name == anomalies.NAME and r.status == scorecard.FAIL:
+            w = f"anomalies in the output: {r.detail}"
+            warnings.append(w)
+            rt.warn(w)
 
     period = resolved.period
     stem = f"txns-{period.label}-{rid[:RUN_ID_SHORT]}"

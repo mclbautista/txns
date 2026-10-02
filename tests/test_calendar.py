@@ -250,6 +250,36 @@ class SeasonTest(unittest.TestCase):
         self.assertGreater(share(dates_of(ws.run("generate", "--seed", "5"))), 0.18)
 
 
+    def test_month_end_on_business_days(self):
+        # Last 3 business days of the month at 1.5x (inputs/bundle-rules.json): weekends
+        # and holidays at the end of a month are skipped, so the window reaches back.
+        from txns.engine.calendar import month_end_business_days
+
+        cal = committed()
+        oct_2026 = [d for d in range(20, 32) if month_end_business_days(date(2026, 10, d), 3, cal)]
+        self.assertEqual(oct_2026, [28, 29, 30])  # the 31st is a Saturday
+        self.assertFalse(month_end_business_days(date(2026, 10, 31), 3, cal))
+        dec_2026 = [d for d in range(20, 32) if month_end_business_days(date(2026, 12, d), 3, cal)]
+        self.assertEqual(len(dec_2026), 3)
+        self.assertTrue(all(cal.get(date(2026, 12, d)) is None for d in dec_2026))
+
+        def share(ds):
+            return sum(1 for d in ds if month_end_business_days(d, 3, cal)) / len(ds)
+
+        ws = Workspace(self)
+        ws.write_config(FULL_YEAR_2026)
+        ws.install_bundle(mutate=set_calendar(month_end={"days": 3, "factor": 1.0}))
+        base = share(dates_of(ws.run("generate", "--seed", "5")))
+        ws = Workspace(self)
+        ws.write_config(FULL_YEAR_2026)
+        ws.install_bundle(mutate=set_calendar(month_end={"days": 3, "factor": 3.0, "business_days": True}))
+        self.assertGreater(share(dates_of(ws.run("generate", "--seed", "5"))), base + 0.05)
+
+    def test_committed_rules_weight_the_last_three_business_days(self):
+        rules = json.loads((REPO / "inputs" / "bundle-rules.json").read_text(encoding="utf-8"))
+        self.assertEqual(rules["calendar"]["month_end"], {"business_days": True, "days": 3, "factor": 1.5})
+
+
 def sparse_bundle(files):
     """Only sparse items (about 0.4 rows a day in all), so a 3x-average day is a few rows."""
     for key in ("rate_cards", "text"):

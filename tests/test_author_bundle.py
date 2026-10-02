@@ -274,6 +274,16 @@ class PricingTest(BundleCase):
         self.assertEqual(text["delivery_fee_a"]["descriptive"],
                          ["delivery fee a purchase", "delivery fee a for the office", "delivery fee a order"])
 
+    def test_denied_variants_never_enter_the_bundle(self):  # rules.json denied_item_patterns
+        fake = self.ws.llm.script("variants-01", edit_item(
+            "office_expense_meals_a", lambda v: (v["descriptive"].append("Out fee"), v["terse"].append("Reimbursement Fees"))))
+        _, _, _, text, _, out = self.priced(fake)
+        meals = text["office_expense_meals_a"]
+        self.assertNotIn("Out fee", meals["descriptive"])
+        self.assertNotIn("Reimbursement Fees", meals["terse"])
+        self.assertEqual(len(meals["descriptive"]), 3)  # the drafted ones that name the thing bought
+        self.assertIn("dropped 2 variant(s) matching `denied_item_patterns`", out)
+
     def test_one_seller_retail_item_gets_a_second_unnamed_seller(self):
         fake = self.ws.llm.script("catalog-01", edit_item("delivery_fee_a", lambda i: i.update(sellers=i["sellers"][:1])))
         _, _, cards, _, _, _ = self.priced(fake)

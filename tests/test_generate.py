@@ -12,6 +12,13 @@ from pathlib import Path
 from unittest import mock
 
 from tests.helpers import FIXTURE_CONFIG, Workspace, add_item, load_fixture_files
+from txns.bundle import store
+from txns.config import Calibration, Config, resolve
+from txns.engine import drawer
+from txns.engine.context import EngineContext
+from txns.engine.rows import Occurrence
+from txns.errors import DraftGenerationError
+from txns.prng import Streams
 
 CSV_NAME = re.compile(r"^txns-2026Q3-[0-9a-f]{6}\.csv$")
 
@@ -85,10 +92,13 @@ class DeterminismTest(unittest.TestCase):
         base = self.ws.run("generate", "--seed", "42").run_json["run_id"]
         repo_config = Path(__file__).resolve().parent.parent / "txns.toml"
         text = repo_config.read_text(encoding="utf-8")
-        # Only the ₱4M target and its band are swapped for the fixture's (FIXTURE_CONFIG).
+        # Only the ₱4M target and its band are swapped for the fixture's (FIXTURE_CONFIG), and the
+        # [calibration] table (off by default, which the fixture bundle cannot meet) is dropped.
         for key, value in FIXTURE_CONFIG.items():
             text, n = re.subn(rf"^{key} = \S+", f"{key} = {value}", text, flags=re.MULTILINE)
             self.assertEqual(n, 1, key)
+        text, n = re.subn(r"^\[calibration\]\n(?:[a-z_]+ = .*\n)+", "", text, flags=re.MULTILINE)
+        self.assertEqual(n, 1, "[calibration]")
         self.ws.write_config(text)
         self.assertEqual(self.ws.run("generate", "--seed", "42").run_json["run_id"], base)
 
@@ -462,3 +472,141 @@ class OutputFormatTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+FLOOR_CONFIG = "[calibration]\nmin_transaction_amount = 500\n"
+
+
+def floor_items(files):
+    """Errand items whose rows straddle ₱500: some draws are under it, every item can reach it."""
+    files["catalog"]["items"].clear()
+    files["rate_cards"].clear()
+    files["text"].clear()
+    files["storylines"].clear()
+    for n, (low, high) in enumerate(((30_000, 45_000), (26_000, 38_500), (42_000, 47_500), (35_500, 41_000))):
+        add_item(
+            files,
+            f"errands.run_{n}",
+            storyline="errands",
+            points=[(low, f"seller-{n}a"), (high, f"seller-{n}b")],
+            quantities=[(1, 6), (2, 3), (3, 1)],
+            descriptive=[f"Errand run {n} for the edit bay", f"Errand run {n} for client delivery", f"Errand run {n}, rush"],
+            terse=[f"Errand {n}", f"Run {n}"],
+            params={"per_week": 7.0},
+        )
+
+
+class MinimumAmountTest(unittest.TestCase):
+    """`[calibration] min_transaction_amount`: no row under the floor (re-rolls, pre-flight)."""
+
+    def setUp(self):
+        self.ws = Workspace(self)
+
+    def amounts(self, r):
+        return [Decimal(row["qty"]) * Decimal(row["unit_price"]) for row in r.rows]
+
+    def test_minimum_transaction_amount_floor(self):
+        self.ws.install_bundle(mutate=floor_items)
+        self.ws.write_config('start = "2025-01-01"\nend = "2025-12-31"\n' + FLOOR_CONFIG)
+        r = self.ws.run("generate", "--seed", "11")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        amounts = self.amounts(r)
+        self.assertGreaterEqual(len(amounts), 1000)
+        self.assertGreaterEqual(min(amounts), Decimal("500.00"))
+        self.assertEqual(r.run_json["config"]["calibration"]["min_transaction_amount"], 500)
+
+        # Without the floor the same bundle draws rows under ₱500, so the floor did the work.
+        self.ws.write_config('start = "2025-01-01"\nend = "2025-12-31"\n')
+        self.assertLess(min(self.amounts(self.ws.run("generate", "--seed", "11"))), Decimal("500.00"))
+
+    def test_rows_at_or_above_the_floor_draw_as_without_one(self):
+        self.ws.install_bundle()
+        self.ws.write_config("[calibration]\nmin_transaction_amount = 0.01\n")
+        floored = self.ws.run("generate", "--seed", "5")
+        self.ws.write_config("")
+        plain = self.ws.run("generate", "--seed", "5")
+        self.assertEqual(floored.rows, plain.rows)
+
+    def test_reroll_cap_raises_error(self):
+        def mostly_cheap(files):
+            floor_items(files)
+            add_item(files, "errands.stamp", storyline="errands", points=[(10_000, "post-1")],
+                     quantities=[(1, 1_000_000), (7, 1)],
+                     descriptive=["Postage stamps for invoices", "Stamps for courier forms", "Postage for contracts"],
+                     terse=["Stamps", "Postage"], params={"per_week": 3.0})
+
+        self.ws.install_bundle(mutate=mostly_cheap)
+        self.ws.write_config(FLOOR_CONFIG)
+        r = self.ws.run("generate", "--seed", "1")
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("after 50 attempts for item `errands.stamp` (archetype `petty_daily`)", r.stderr)
+        self.assertEqual(self.ws.all_csvs(), [])
+
+        self.ws.write_config(FLOOR_CONFIG + "max_reroll_attempts = 3\n")
+        r = self.ws.run("generate", "--seed", "1")
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("after 3 attempts", r.stderr)
+
+    def test_reroll_counts_attempts(self):
+        calls = []
+
+        class Stream:  # always the cheapest point and quantity
+            def below(self, n):
+                calls.append(n)
+                return 0
+
+            def quantile_index(self, weights):
+                return 0
+
+        bundle = store.load(self.ws.bundle_dir(self.ws.install_bundle(mutate=floor_items)))
+        cfg = Config(calibration=Calibration(min_amount=500))
+        resolved = resolve(cfg, today=date(2026, 10, 5), bundle_id=bundle.id, storylines=list(bundle.storylines), seed=1)
+        ctx = EngineContext(bundle, resolved, Streams(1))
+        with self.assertRaises(DraftGenerationError):
+            drawer.reroll(ctx, Occurrence("errands.run_0", "errands", date(2026, 7, 1)), Stream(), 50_000)
+        self.assertEqual(len(calls), 50)
+
+    def test_item_that_can_never_reach_the_floor_is_left_out_with_a_warning(self):
+        def with_parking(files):
+            floor_items(files)
+            add_item(files, "errands.parking", storyline="errands", points=[(5_000, "lot-1"), (6_000, "lot-2")],
+                     quantities=[(1, 1)], descriptive=["Parking at client office", "Parking for shoot", "Mall parking"],
+                     terse=["Parking", "Park fee"], params={"per_week": 7.0})
+
+        self.ws.install_bundle(mutate=with_parking)
+        self.ws.write_config(FLOOR_CONFIG)
+        r = self.ws.run("generate", "--seed", "3")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("item `errands.parking` left out: its largest possible row ₱60.00", r.stderr)
+        self.assertFalse([row for row in r.rows if "arking" in row["item/service"]])
+        self.assertTrue(any("errands.parking" in w for w in r.run_json["warnings"]))
+
+    def test_no_item_can_reach_the_floor_exits_4(self):
+        self.ws.install_bundle()
+        self.ws.write_config("[calibration]\nmin_transaction_amount = 100000\n")
+        r = self.ws.run("generate", "--seed", "3")
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("no item in bundle", r.stderr)
+
+    def test_invalid_calibration_table_exits_2(self):
+        bad = [
+            "[calibration]\nmin_rows = 3\n",
+            "[calibration]\nmin_quarterly_transactions = 300\n",
+            "[calibration]\nmin_quarterly_transactions = 400\nmax_quarterly_transactions = 300\n",
+            "[calibration]\nmin_transaction_amount = 0\n",
+            "[calibration]\nmax_reroll_attempts = 0\n",
+            "target_rows = 100\n[calibration]\nmin_quarterly_transactions = 3\nmax_quarterly_transactions = 4\n",
+            "[multipliers.archetype]\none_off_big_ticket = 0\n",
+        ]
+        for text in bad:
+            self.ws.write_config(text)
+            r = self.ws.run("generate", "--seed", "1")
+            self.assertEqual(r.code, 2, text)
+            self.assertIn("error: config:", r.stderr)
+
+    def test_unknown_archetype_multiplier_warns(self):
+        self.ws.install_bundle()
+        self.ws.write_config("[multipliers.archetype]\nweekly_splurge = 2.0\n")
+        r = self.ws.run("generate", "--seed", "1")
+        self.assertEqual(r.code, 0, r.stderr)
+        self.assertIn("multipliers.archetype names unknown archetypes: weekly_splurge", r.stderr)

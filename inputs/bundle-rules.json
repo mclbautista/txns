@@ -1,5 +1,9 @@
 {
   "note": "Committed rule defaults `txns author` copies into every bundle as rules.json (FR-D1). Sources: wayfinder tickets 04 (timing) and 05 (quantity and price), the ledger aggregates in wayfinder/research/02-cost-facts.md, and the engine's documented defaults. Review and edit here; a new `author` run carries the change into the next bundle. Money is int centavos.",
+  "denied_item_patterns": [
+    "(?i)\\bout\\s+fee\\b",
+    "(?i)\\breimbursement\\s+fee(s)?\\b"
+  ],
   "archetypes": {
     "batch_logged": {
       "batch_days": [15, 31],
@@ -44,8 +48,9 @@
     "holiday_leak": 0.05,
     "holy_week_factor": 1.0,
     "month_end": {
+      "business_days": true,
       "days": 3,
-      "factor": 1.1
+      "factor": 1.5
     },
     "month_weights": {
       "1": 1.0,

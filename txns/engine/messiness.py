@@ -202,6 +202,7 @@ def per_unit(ctx: EngineContext, rows: list[Row]) -> list[Row]:
     # Each item's derived rows add >= 0 centavos (so the total never drops below the band);
     # together they may add at most `room`, so it never rises above it either.
     room = Goal.of(ctx.config).hi - sum(r.amount for r in rows)
+    floor = ctx.config.calibration.min_amount_centavos  # a derived row never dips under the floor
     for item_id, idx in _by_item(rows).items():
         item = ctx.bundle.items[item_id]
         pcs = packs.pack_pcs(item)
@@ -227,7 +228,8 @@ def per_unit(ctx: EngineContext, rows: list[Row]) -> list[Row]:
             price = low if low > 0 and drift + low * qty - row.amount >= 0 else high
             derived = replace(row, qty=qty, unit_price=price, tags=row.tags + (PER_UNIT,))
             delta = derived.amount - row.amount
-            if delta > room or is_round_thousand(derived.amount) or not packs.is_per_unit(item, derived):
+            if (delta > room or is_round_thousand(derived.amount) or not packs.is_per_unit(item, derived)
+                    or (floor is not None and derived.amount < floor)):
                 continue
             drift += delta
             room -= delta
